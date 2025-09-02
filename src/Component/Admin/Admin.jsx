@@ -36,6 +36,7 @@ import OutstandingBalances from "../Load Details/OutstandingBalances";
 import FullPaid from "../Load Details/FullPaid";
 import PaymentDetails from "../Load Details/PaymentDetails";
 import ProcessingFee from "../Fees Collection/ProcessingFee";
+import GroupReportTransactionGPT from "../Reports/Portfolio Transaction/GroupReportTransactionGPT";
 
 // --- Navigation Items Configuration (Defined First) ---
 const NAV_ITEMS = [
@@ -85,6 +86,7 @@ const NAV_ITEMS = [
         children: [ // First level of nested children
           { key: "generalportfolio", label: "General Portfolio", icon: <MdBarChart /> },
           { key: "staffportfolio", label: "Staff Portfolio", icon: <MdFormatListBulleted /> },
+          { key: "groupReportTransactionGPT", label: "GroupReport", icon: <MdFormatListBulleted /> },
         ]
       },
       { key: "loanReports", label: "Loan Reports", icon: <MdAssignment />,
@@ -156,33 +158,8 @@ const Button = ({ variant = "default", onClick, className = "", children }) => {
   );
 };
 
-// --- Placeholder Components ---
-const Repayment = () => (
-  <div className="p-6 bg-white rounded-xl shadow-md">
-    <h2 className="text-2xl font-semibold text-gray-800">Repayment</h2>
-    <p className="mt-2 text-gray-600">This section is for managing repayment schedules and collections.</p>
-  </div>
-);
-const FeesCollection = () => (
-  <div className="p-6 bg-white rounded-xl shadow-md">
-    <h2 className="text-2xl font-semibold text-gray-800">Fees Collection</h2>
-    <p className="mt-2 text-gray-600">This section manages fees, charges, and collection logs.</p>
-  </div>
-);
+// --- Placeholder Components --
 
-// New placeholder components for nested reports
-const SummaryReport = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Summary Report</h2>
-        <p className="mt-2 text-gray-600">Overview of key financial metrics.</p>
-    </div>
-);
-const DetailedReport = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Detailed Report</h2>
-        <p className="mt-2 text-gray-600">Granular data for in-depth analysis.</p>
-    </div>
-);
 const PerformanceMetrics = () => (
     <div className="p-6 bg-white rounded-xl shadow-md">
         <h2 className="text-2xl font-semibold text-gray-800">Performance Metrics</h2>
@@ -299,6 +276,7 @@ function AdminPanel() {
       case "otherFees": return <div>Other Fees Component</div>;
       case "generalportfolio": return <GeneralReportTransactionGPT {...propsWithBranch} />;
       case "staffportfolio": return <StaffReportTransactionGPT {...propsWithBranch} />;
+      case "groupReportTransactionGPT": return <GroupReportTransactionGPT {...propsWithBranch} />;
       case "performanceMetrics": return <PerformanceMetrics />;
       case "loanAnalytics": return <LoanAnalytics />;
       case "savingsAnalytics": return <SavingsAnalytics />;

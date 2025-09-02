@@ -92,6 +92,21 @@ function ClientDetails({ branch }) { // Add branch to props
     const [telephone, setTelephone] = useState('');
     const [address, setAddress] = useState('');
 
+      const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
     // NEW: State for Branch ID
     const [branchId, setBranchId] = useState('');
 
@@ -157,13 +172,13 @@ useEffect(() => {
             const branchClients = fetchedClients.filter(client => client.branchId === branchId);
 
             const latestClientNumber = branchClients.reduce((max, client) => {
-                const numMatch = (client.clientId || "cmcs-00").match(/^cmcs-(\d+)$/i);
+                const numMatch = (client.clientId || "pmcd-00").match(/^pmcd-(\d+)$/i);
                 const num = numMatch ? parseInt(numMatch[1], 10) : 0;
                 return num > max ? num : max;
             }, 0);
 
             const newNumber = latestClientNumber + 1;
-            const formattedId = `cmcs-${String(newNumber).padStart(2, '0')}`;
+            const formattedId = `pmcd-${String(newNumber).padStart(2, '0')}`;
             setClientId(formattedId);
         }
 
@@ -311,7 +326,7 @@ useEffect(() => {
         setIsSaving(true); // Set saving state to true
 
         // Basic client-side validation for required fields
-        if (!fullName || !gender || !dateOfBirth || !telephone || !address || !staffName || !branchId) {
+        if (!fullName  || !staffName || !branchId) {
             alert("Please fill in all required fields and upload a photo.");
             setIsSaving(false);
             return;
@@ -331,7 +346,7 @@ useEffect(() => {
             maritalStatus,
             telephone,
             address,
-            photoUrl, // Cloudinary URL
+            // photoUrl, // Cloudinary URL
             createdAt: editingClientId ? clientList.find(c => c.id === editingClientId)?.createdAt : new Date().toISOString(), // Preserve original creation date if editing
             updatedAt: new Date().toISOString(), // Update timestamp on every save
         };
@@ -412,9 +427,21 @@ useEffect(() => {
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             {/* Client Registration Form Section */}
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">
-                    {editingClientId ? 'Edit Client Details' : 'Client Registration Form'}
-                </h1>
+                <div className="flex items-center justify-between text-center">
+                    {/* Header Title */}
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2 border-b pb-4">
+                        {editingClientId ? 'Edit Client Details' : 'Client Registration Form'}
+                    </h1>
+
+                    {/* Online / Offline Status */}
+                    <span
+                        className={`ml-4 text-sm font-semibold ${isOnline ? "text-green-600" : "text-red-600"
+                            }`}
+                    >
+                        {isOnline ? "✅ Online" : "⚠️ Offline"}
+                    </span>
+                </div>
+
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Registration Date (Read-only) */}
@@ -528,7 +555,7 @@ useEffect(() => {
                     <Input id="address" label="Address" type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Freetown" icon={FaHome} />
 
                     {/* Photo Section */}
-                    <div className="col-span-1 md:col-span-2 lg:col-span-3 flex flex-col items-center justify-center space-y-4 pt-4 border-t border-gray-200 mt-4">
+                    {/* <div className="col-span-1 md:col-span-2 lg:col-span-3 flex flex-col items-center justify-center space-y-4 pt-4 border-t border-gray-200 mt-4">
                         <h3 className="text-lg font-semibold text-gray-800">Client Photo</h3>
                         <div className="w-32 h-32 rounded-full border-4 border-gray-300 flex items-center justify-center overflow-hidden bg-gray-200 relative">
                             {imageUploading ? (
@@ -551,7 +578,7 @@ useEffect(() => {
                                 className="hidden"
                             />
                         </div>
-                    </div>
+                    </div> */}
 
                     {/* Submit Button */}
                     <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-6">
@@ -597,7 +624,7 @@ useEffect(() => {
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Full Name</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch ID</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telephone</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">StaffNAme</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                     </tr>
                                 </thead>
@@ -608,7 +635,7 @@ useEffect(() => {
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.fullName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.branchId}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.gender}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.telephone}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.staffName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                 <div className="flex items-center space-x-2">
                                                     <button

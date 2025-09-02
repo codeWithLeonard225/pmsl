@@ -73,84 +73,121 @@ const Spinner = () => (
     </div>
 );
 
-// ✅ Add the branchId prop here
 function Loan({ branch }) {
     // State for all form fields
-
-    // NEW: State for Branch ID
     const [branchId, setBranchId] = useState('');
-
     const [loanId, setLoanId] = useState('');
     const [clientId, setClientId] = useState('');
     const [clientName, setClientName] = useState('');
     const [staffName, setStaffName] = useState('');
-
     const [loanOutcome, setLoanOutcome] = useState('');
     const [loanType, setLoanType] = useState('');
     const [processingFee, setProcessingFee] = useState('');
     const [itFee, setItFee] = useState('');
     const [riskPremium, setRiskPremium] = useState('');
     const [gFund, setGFund] = useState('');
-
     const [disbursementDate, setDisbursementDate] = useState(new Date().toISOString().slice(0, 10));
     const [principal, setPrincipal] = useState('');
     const [repaymentStartDate, setRepaymentStartDate] = useState('');
     const [interestRate, setInterestRate] = useState('');
     const [paymentWeeks, setPaymentWeeks] = useState('');
-
     const [groupId, setGroupId] = useState('');
     const [groupName, setGroupName] = useState('');
-
-    // State for managing groups (these groups will also be stored in Firestore)
     const [groupList, setGroupList] = useState([]);
     const [tempGroupId, setTempGroupId] = useState('');
     const [tempGroupName, setTempGroupName] = useState('');
-
-    // State for the list of loans and the currently editing loan ID
     const [loanList, setLoanList] = useState([]);
-    const [editingLoanId, setEditingLoanId] = useState(null); // Stores Firestore document ID
-
-    // State for the search term
+    const [editingLoanId, setEditingLoanId] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
-
-    // Loading state for data fetching
     const [loading, setLoading] = useState(true);
-    const [clientLoading, setClientLoading] = useState(false); // New loading state for client lookup
+    const [clientLoading, setClientLoading] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-    // Define the PIN for delete confirmation (WARNING: not for production)
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, []);
+
+
     const DELETE_PIN = "1234";
 
     // Firestore collection references
     const loansCollectionRef = collection(db, "loans");
-    const groupsCollectionRef = collection(db, "groups"); // New collection for groups
-    const clientsCollectionRef = collection(db, "clients"); // Reference to clients collection
+    const groupsCollectionRef = collection(db, "groups");
+    const clientsCollectionRef = collection(db, "clients");
 
-    // NEW: useEffect to set the branchId state from the prop when the component mounts or the prop changes
+    // NEW: useEffect to set the branchId state from the prop
     useEffect(() => {
         if (branch && branch.branchId) {
             setBranchId(branch.branchId);
         }
     }, [branch]);
 
-
-    // Effect to fetch loans and groups from Firestore in real-time
+    // NEW: Effect to fetch groups from Firestore based on branchId
     useEffect(() => {
-        if (!branch) {
-            console.warn("branchId is not provided. Cannot fetch loans.");
+        if (!branchId) return;
+
+        const qGroups = query(
+            groupsCollectionRef,
+            where('branchId', '==', branchId), // Filter groups by branchId
+
+        );
+
+        const unsubscribeGroups = onSnapshot(qGroups, (snapshot) => {
+            const fetchedGroups = snapshot.docs.map((doc) => ({
+                ...doc.data(),
+                id: doc.id
+            }));
+            setGroupList(fetchedGroups);
+        }, (error) => {
+            console.error("Error fetching real-time group data:", error);
+            alert("Failed to load group data.");
+        });
+
+        return () => unsubscribeGroups();
+    }, [branchId]); // Re-run when branchId changes
+
+    // NEW: Auto-increment logic for Group ID
+    useEffect(() => {
+        if (!editingLoanId && branchId) {
+            const latestGroupNumber = groupList.reduce((max, group) => {
+                const numMatch = (group.groupId || "").match(/-(\d+)$/);
+                const num = numMatch ? parseInt(numMatch[1], 10) : 0;
+                return num > max ? num : max;
+            }, 0);
+
+            const newNumber = latestGroupNumber + 1;
+            const formattedId = `${branchId}-${String(newNumber).padStart(2, '0')}`;
+            setTempGroupId(formattedId);
+        }
+    }, [groupList, editingLoanId, branchId]);
+
+
+    // Effect to fetch loans from Firestore in real-time (already had this)
+    useEffect(() => {
+        if (!branchId) {
             setLoading(false);
             return;
         }
 
         setLoading(true);
 
-        // ✅ Query loans specific to the branchId
-        const q = query(
+        const qLoans = query(
             loansCollectionRef,
-            where('branchId', '==', branch.branchId), // Correct
-          
+            where('branchId', '==', branchId),
         );
 
-        const unsubscribeLoans = onSnapshot(q, (snapshot) => {
+        const unsubscribeLoans = onSnapshot(qLoans, (snapshot) => {
             const fetchedLoans = snapshot.docs.map((doc) => ({
                 ...doc.data(),
                 id: doc.id
@@ -163,26 +200,10 @@ function Loan({ branch }) {
             setLoading(false);
         });
 
-        // Subscribe to groups collection (no branch filter needed here, assuming groups are shared)
-        const unsubscribeGroups = onSnapshot(groupsCollectionRef, (snapshot) => {
-            const fetchedGroups = snapshot.docs.map((doc) => ({
-                ...doc.data(),
-                id: doc.id
-            }));
-            setGroupList(fetchedGroups);
-        }, (error) => {
-            console.error("Error fetching real-time group data:", error);
-            alert("Failed to load group data.");
-        });
+        return () => unsubscribeLoans();
+    }, [branchId]);
 
-        // Cleanup function: unsubscribe from listeners when component unmounts
-        return () => {
-            unsubscribeLoans();
-            unsubscribeGroups();
-        };
-    }, [branchId]); // 🔄 Re-run effect when branchId changes
-
-    // NEW useEffect to fetch client details when clientId changes
+    // NEW: useEffect to fetch client details when clientId changes
     useEffect(() => {
         if (!clientId) {
             setClientName('');
@@ -193,8 +214,7 @@ function Loan({ branch }) {
         setClientLoading(true);
 
         try {
-            // ✅ Query clients specific to both clientId and branchId
-           const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branch.branchId)); // Correct
+            const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId));
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
                     const clientData = snapshot.docs[0].data();
@@ -207,33 +227,16 @@ function Loan({ branch }) {
                 setClientLoading(false);
             });
 
-            return () => unsubscribe(); // ✅ cleanup listener
+            return () => unsubscribe();
         } catch (error) {
             console.error("Error fetching client details:", error);
             setClientName('');
             setStaffName('');
             setClientLoading(false);
         }
-    }, [clientId, branchId]); // 🔄 Re-run when clientId or branchId changes
+    }, [clientId, branchId]);
 
-
-// Derived state: Filtered loan list based on the search term AND branchId
-const filteredLoans = loanList.filter(loan => {
-    const lowerCaseSearchTerm = searchTerm.toLowerCase();
-    
-    // First, filter by the branchId. If the loan's branchId doesn't match, it's excluded.
-    const isFromCurrentBranch = loan.branchId === branchId;
-    
-    // Second, filter by the search term. Check if the search term is in clientName, clientId, or staffName.
-    const matchesSearchTerm = 
-        (loan.clientName || "").toLowerCase().includes(lowerCaseSearchTerm) ||
-        (loan.clientId || "").toLowerCase().includes(lowerCaseSearchTerm) ||
-        (loan.staffName || "").toLowerCase().includes(lowerCaseSearchTerm);
-
-    // Return true only if both conditions are met.
-    return isFromCurrentBranch && matchesSearchTerm;
-});
-
+    // Auto-increment logic for Loan ID (already had this)
     useEffect(() => {
         if (!editingLoanId && loanList.length > 0) {
             const latestLoanNumber = loanList.reduce((max, loan) => {
@@ -249,6 +252,20 @@ const filteredLoans = loanList.filter(loan => {
             setLoanId('loan-01');
         }
     }, [loanList, editingLoanId]);
+
+    // Derived state: Filtered loan list based on the search term AND branchId
+    const filteredLoans = loanList.filter(loan => {
+        const lowerCaseSearchTerm = searchTerm.toLowerCase();
+
+        const isFromCurrentBranch = loan.branchId === branchId;
+
+        const matchesSearchTerm =
+            (loan.clientName || "").toLowerCase().includes(lowerCaseSearchTerm) ||
+            (loan.clientId || "").toLowerCase().includes(lowerCaseSearchTerm) ||
+            (loan.staffName || "").toLowerCase().includes(lowerCaseSearchTerm);
+
+        return isFromCurrentBranch && matchesSearchTerm;
+    });
 
     // Function to clear the form fields
     const clearForm = () => {
@@ -266,15 +283,19 @@ const filteredLoans = loanList.filter(loan => {
         setRepaymentStartDate('');
         setInterestRate('');
         setPaymentWeeks('');
-        setGroupId('');
+        // setGroupId('');
         setGroupName('');
         setEditingLoanId(null);
     };
 
     // Handle adding a new group to Firestore
     const handleAddGroup = async () => {
-        if (tempGroupId && tempGroupName) {
-            const newGroupData = { groupId: tempGroupId, groupName: tempGroupName };
+        if (tempGroupId && tempGroupName && branchId) {
+            const newGroupData = {
+                groupId: tempGroupId,
+                groupName: tempGroupName,
+                branchId: branchId, // Save the branchId with the group
+            };
             try {
                 const existingGroup = groupList.find(group => group.groupId === tempGroupId);
                 if (existingGroup) {
@@ -283,14 +304,14 @@ const filteredLoans = loanList.filter(loan => {
                 }
                 await addDoc(groupsCollectionRef, newGroupData);
                 alert("Group added successfully! 🤝");
-                setTempGroupId('');
+                // setTempGroupId('');
                 setTempGroupName('');
             } catch (error) {
                 console.error("Error adding group to Firestore:", error);
                 alert("Failed to add group. Please try again.");
             }
         } else {
-            alert("Please provide both Group ID and Group Name.");
+            alert("Please provide Group ID, Group Name, and ensure a valid Branch ID is set.");
         }
     };
 
@@ -302,6 +323,9 @@ const filteredLoans = loanList.filter(loan => {
             alert("Please fill in all required loan details.");
             return;
         }
+
+        if (isSubmitting) return; // Prevent multiple clicks
+        setIsSubmitting(true);
 
         const loanData = {
             loanId,
@@ -321,7 +345,6 @@ const filteredLoans = loanList.filter(loan => {
             paymentWeeks: parseInt(paymentWeeks, 10) || 0,
             groupId,
             groupName,
-            // ✅ Include branchId in the loan data
             branchId,
         };
 
@@ -337,8 +360,11 @@ const filteredLoans = loanList.filter(loan => {
             clearForm();
         } catch (error) {
             console.error("Error saving loan data to Firestore:", error);
-            alert("Failed to save loan data. Please try again. Check the console for more details.");
+            alert("Failed to save loan data. Please try again.");
         }
+
+        // Re-enable after 5 seconds
+        setTimeout(() => setIsSubmitting(false), 5000);
     };
 
     // Handle the "Edit" button click
@@ -392,15 +418,26 @@ const filteredLoans = loanList.filter(loan => {
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+                <div className='flex text-center align-center justify-between'>
                 <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">
                     {editingLoanId ? 'Edit Loan Disbursement' : 'Loan Disbursement Form'}
                 </h1>
+
+                {/* Online / Offline Status */}
+                <p
+                    className={`text-sm font-semibold ${isOnline ? "text-green-600" : "text-red-600"
+                        }`}
+                >
+                    {isOnline ? "✅ You are online" : "⚠️ You are offline"}
+                </p>
+                </div>
+                
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Loan Details Section */}
                     <div className="col-span-1 md:col-span-2 lg:col-span-3">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {/* NEW: Branch ID Input Field */}
+                            {/* Branch ID Input Field (read-only) */}
                             <Input
                                 id="branchId"
                                 label="Branch ID"
@@ -408,8 +445,7 @@ const filteredLoans = loanList.filter(loan => {
                                 value={branchId}
                                 onChange={(e) => setBranchId(e.target.value)}
                                 placeholder="e.g., B001"
-                                readOnly // Make this read-only so users can't change the assigned branch
-
+                                readOnly
                             />
                             <div className="flex flex-col space-y-1">
                                 <label htmlFor="loanId" className="text-sm font-medium text-gray-700">Loan ID</label>
@@ -464,9 +500,9 @@ const filteredLoans = loanList.filter(loan => {
                                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors duration-200"
                                 >
                                     <option value="">Select Outcome</option>
-                                    <option value="Approved">Approved</option>
-                                    <option value="Rejected">Rejected</option>
-                                    <option value="Pending">Pending</option>
+                                    <option value="1st take">1st take</option>
+                                    <option value="2nd take">2nd take</option>
+                                    <option value="3rd take">3rd take</option>
                                 </select>
                             </div>
 
@@ -480,9 +516,9 @@ const filteredLoans = loanList.filter(loan => {
                                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors duration-200"
                                 >
                                     <option value="">Select Type</option>
-                                    <option value="Personal">Personal</option>
-                                    <option value="Business">Business</option>
-                                    <option value="Educational">Educational</option>
+                                    <option value="Regular">Regular</option>
+                                    <option value="Special">Special</option>
+                                    <option value="3rd Take_or_above">3rd Take or above</option>
                                 </select>
                             </div>
 
@@ -516,6 +552,8 @@ const filteredLoans = loanList.filter(loan => {
                                 value={tempGroupId}
                                 onChange={(e) => setTempGroupId(e.target.value)}
                                 placeholder="Group ID"
+                                readOnly={true}
+
                             />
                             <Input
                                 id="tempGroupName"
@@ -560,10 +598,16 @@ const filteredLoans = loanList.filter(loan => {
                     <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-6">
                         <button
                             type="submit"
-                            className="w-full py-3 bg-indigo-600 text-white rounded-md font-bold text-lg hover:bg-indigo-700 transition-colors duration-200 shadow-md"
+                            disabled={isSubmitting || !isOnline}
+                            className={`w-full py-3 rounded-md font-bold text-lg shadow-md transition-colors duration-200
+    ${isSubmitting || !isOnline
+                                    ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                                    : "bg-indigo-600 text-white hover:bg-indigo-700"}
+  `}
                         >
-                            {editingLoanId ? 'Update Loan' : 'Save Loan'}
+                            {isSubmitting ? "Processing..." : editingLoanId ? "Update Loan" : "Save Loan"}
                         </button>
+
                     </div>
                 </form>
             </div>
@@ -592,10 +636,13 @@ const filteredLoans = loanList.filter(loan => {
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">staff Name</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan ID</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client ID</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client Name</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">G_fund</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">P_Weeks</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Int</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                     </tr>
@@ -603,10 +650,13 @@ const filteredLoans = loanList.filter(loan => {
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {filteredLoans.map((loan) => (
                                         <tr key={loan.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.staffName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{loan.loanId}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.clientId}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.clientName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${loan.principal}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${loan.gFund}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.paymentWeeks}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.interestRate}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.groupName} ({loan.groupId})</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                 <div className="flex items-center space-x-2">

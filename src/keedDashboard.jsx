@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../../../firebase';
-import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
 
 const printStyles = `
 @media print {
@@ -15,22 +15,36 @@ const printStyles = `
 `;
 
 function FieldCollectionSheet({ branch }) {
+    const [branchId, setBranchId] = useState('');
     const printAreaRef = useRef(null);
     const [payments, setPayments] = useState([]);
     const [savings, setSavings] = useState([]);
     const [loadingPayments, setLoadingPayments] = useState(true);
     const [loadingSavings, setLoadingSavings] = useState(true);
     const [error, setError] = useState(null);
-    const [selectedDate, setSelectedDate] = useState('');
-
-    // 🔹 New states for filters
     const [selectedStaff, setSelectedStaff] = useState('');
     const [selectedGroup, setSelectedGroup] = useState('');
 
+    const [clientDates, setClientDates] = useState({});
+
     useEffect(() => {
-        // Fetch payments
+        if (branch && branch.branchId) {
+            setBranchId(branch.branchId);
+        }
+    }, [branch]);
+
+    useEffect(() => {
+        if (!branchId) {
+            setLoadingPayments(false);
+            setLoadingSavings(false);
+            return;
+        }
+
         const paymentsCollectionRef = collection(db, 'payments');
-        const paymentsQuery = query(paymentsCollectionRef, orderBy('createdAt', 'desc'));
+        const paymentsQuery = query(
+            paymentsCollectionRef,
+            where('branchId', '==', branchId),
+        );
         const unsubscribePayments = onSnapshot(
             paymentsQuery,
             snapshot => {
@@ -54,9 +68,11 @@ function FieldCollectionSheet({ branch }) {
             }
         );
 
-        // Fetch savings
         const savingsCollectionRef = collection(db, 'savings');
-        const savingsQuery = query(savingsCollectionRef, orderBy('createdAt', 'desc'));
+        const savingsQuery = query(
+            savingsCollectionRef,
+            where('branchId', '==', branchId),
+        );
         const unsubscribeSavings = onSnapshot(
             savingsQuery,
             snapshot => {
@@ -75,13 +91,11 @@ function FieldCollectionSheet({ branch }) {
             unsubscribePayments();
             unsubscribeSavings();
         };
-    }, []);
+    }, [branchId]);
 
-    const groupByClient = (payments, savings, filterDate) => {
+    const groupByClient = (payments, savings) => {
         const groupedData = {};
-        const currentDate = filterDate ? new Date(filterDate) : new Date();
 
-        // Lookup savings per client
         const savingsLookup = savings.reduce((acc, current) => {
             if (!acc[current.clientId]) {
                 acc[current.clientId] = {
@@ -99,7 +113,6 @@ function FieldCollectionSheet({ branch }) {
                 clientId,
                 fullName,
                 repaymentAmount,
-                repaymentStartDate,
                 date,
                 loanOutstanding,
                 staffName,
@@ -109,6 +122,8 @@ function FieldCollectionSheet({ branch }) {
                 loanType,
             } = payment;
 
+            const paymentDate = new Date(date);
+
             if (!groupedData[clientId]) {
                 const clientSavings = savingsLookup[clientId] || {};
                 const compSvgBal = clientSavings.compulsoryAmount || 0;
@@ -117,7 +132,6 @@ function FieldCollectionSheet({ branch }) {
                 groupedData[clientId] = {
                     clientId,
                     fullName,
-                    repaymentStartDate,
                     loanOutstanding: loanOutstanding || 0,
                     compSvgBal,
                     volSvgBal,
@@ -125,48 +139,28 @@ function FieldCollectionSheet({ branch }) {
                     repaymentCount: 0,
                     repaymentAmount: repaymentAmount || 0,
                     totalRepaymentSoFar: 0,
-                    latestPaymentDate: null,
+                    latestPaymentDate: paymentDate,
                     staffName,
                     groupId,
                     groupName,
-                    loanProduct: [loanOutcome, loanType].filter(Boolean).join(" - "), // 🔹 Concatenate Loan Outcome + Loan Type
+                    loanProduct: [loanOutcome, loanType].filter(Boolean).join(" - "),
                 };
             }
 
-            const paymentDate = new Date(date);
-            if (!groupedData[clientId].latestPaymentDate || paymentDate > groupedData[clientId].latestPaymentDate) {
+            // Update latestPaymentDate if this payment is more recent
+            if (paymentDate > groupedData[clientId].latestPaymentDate) {
                 groupedData[clientId].latestPaymentDate = paymentDate;
             }
 
-            if (paymentDate <= currentDate) {
-                groupedData[clientId].repaymentCount += 1;
-                groupedData[clientId].totalRepaymentSoFar += repaymentAmount || 0;
-            }
-        });
-
-        Object.values(groupedData).forEach(client => {
-            if (client.latestPaymentDate) {
-                const diffTime = currentDate - client.latestPaymentDate;
-                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-                const weeksDue = diffDays > 0 ? diffDays / 7 : 0;
-                client.expectedPayment = weeksDue * client.repaymentAmount;
-                client.overdueAmount = Math.max(0, client.expectedPayment - client.totalRepaymentSoFar);
-                client.realiseAmount = client.totalRepaymentSoFar - client.overdueAmount;
-
-                const start = new Date(client.repaymentStartDate);
-                let months = (currentDate.getFullYear() - start.getFullYear()) * 12 + (currentDate.getMonth() - start.getMonth()) + 1;
-                client.months = months <= 0 ? 0 : months;
-            }
+            groupedData[clientId].repaymentCount += 1;
+            groupedData[clientId].totalRepaymentSoFar += repaymentAmount || 0;
         });
 
         return Object.values(groupedData);
     };
 
-    // Final data grouped
-    let finalReportData = groupByClient(payments, savings, selectedDate);
+    let finalReportData = groupByClient(payments, savings);
 
-    // Apply staff & group filters
     if (selectedStaff) {
         finalReportData = finalReportData.filter(c => c.staffName === selectedStaff);
     }
@@ -174,7 +168,6 @@ function FieldCollectionSheet({ branch }) {
         finalReportData = finalReportData.filter(c => `${c.groupName} (${c.groupId})` === selectedGroup);
     }
 
-    // Extract unique staff & group lists
     const uniqueStaff = [...new Set(payments.map(p => p.staffName).filter(Boolean))];
     const uniqueGroups = [...new Set(payments.map(p => `${p.groupName} (${p.groupId})`).filter(Boolean))];
 
@@ -208,25 +201,42 @@ function FieldCollectionSheet({ branch }) {
     const getCurrentDate = () => new Date().toLocaleDateString();
     const isLoading = loadingPayments || loadingSavings;
 
+    const calculateClientMetrics = (client, dateString) => {
+        const calculationDate = new Date(dateString);
+        let expectedPayment = 0;
+        let overdueAmount = 0;
+        let months = 0;
+
+        if (client.latestPaymentDate) {
+            const start = client.latestPaymentDate;
+            const diffTime = calculationDate - start;
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            const weeksDue = diffDays > 0 ? diffDays / 7 : 0;
+
+            expectedPayment = weeksDue * (client.repaymentAmount || 0);
+            overdueAmount = Math.max(0, expectedPayment - (client.totalRepaymentSoFar || 0));
+
+            months = (calculationDate.getFullYear() - start.getFullYear()) * 12 + (calculationDate.getMonth() - start.getMonth());
+            months = months <= 0 ? 0 : months;
+        }
+
+        return { expectedPayment, overdueAmount, months };
+    };
+
+    const clientMetrics = finalReportData.reduce((acc, client) => {
+        const calculationDate = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
+        acc[client.clientId] = calculateClientMetrics(client, calculationDate);
+        return acc;
+    }, {});
+
+
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <style>{printStyles}</style>
             <div className="bg-white rounded-xl shadow-lg p-8">
                 <h1 className="text-3xl font-bold text-gray-800 mb-2 no-print">Field Collection Sheet</h1>
 
-                {/* 🔹 Filters */}
                 <div className="no-print mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div className="flex items-center space-x-2">
-                        <label htmlFor="report-date" className="font-medium text-gray-700">As of Date:</label>
-                        <input
-                            type="date"
-                            id="report-date"
-                            value={selectedDate}
-                            onChange={e => setSelectedDate(e.target.value)}
-                            className="px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                        />
-                    </div>
-
                     <div className="flex items-center space-x-2">
                         <label className="font-medium text-gray-700">Staff:</label>
                         <select
@@ -267,10 +277,9 @@ function FieldCollectionSheet({ branch }) {
                     <p className="text-sm text-gray-600 mb-2">Printed on: {getCurrentDate()}</p>
                     <hr className="mb-4" />
 
-                    {/* 🔹 Report Header */}
                     <div className="mb-4">
+                        <h2 className="font-semibold">Branch ID: {branchId}</h2>
                         <h2 className="font-semibold">Loan Officer: {selectedStaff || 'All'}</h2>
-                        <h2 className="font-semibold">Collection Date: {selectedDate || getCurrentDate()}</h2>
                         <h2 className="font-semibold">Group Name: {selectedGroup || 'All'}</h2>
                     </div>
 
@@ -290,70 +299,111 @@ function FieldCollectionSheet({ branch }) {
                                     <th className="border p-2">Comp Svg Col</th>
                                     <th className="border p-2">Vol Col</th>
                                     <th className="border p-2">Loan Prod</th>
-                                    <th className="border p-2">Repayment Start Date</th>
-                                    <th className="border p-2">Mths</th>
+                                    <th className="border p-2">Latest Payment Date</th>
                                     <th className="border p-2">Rpyt count</th>
                                     <th className="border p-2">Repayment Amount</th>
                                     <th className="border p-2">Loan Outstanding</th>
                                     <th className="border p-2">Total Repayment So Far</th>
-                                    <th className="border p-2">Expected Payment</th>
-                                    <th className="border p-2">Overdue Amount</th>
-                                    <th className="border p-2">Realise Amount</th>
+                                    <th className="border p-2">
+                                        <div className="flex flex-col items-center">
+                                            <span>Expected Payment</span>
+                                            <span className="no-print text-xs">(Set Date)</span>
+                                        </div>
+                                    </th>
+                                    <th className="border p-2">
+                                        <div className="flex flex-col items-center">
+                                            <span>Overdue Amount</span>
+                                            <span className="no-print text-xs">(Set Date)</span>
+                                        </div>
+                                    </th>
+                                    <th className="border p-2">
+                                        <div className="flex flex-col items-center">
+                                            <span>Realise Amount</span>
+                                            <span className="no-print text-xs">(Set Date)</span>
+                                        </div>
+                                    </th>
+                                    <th className="border p-2 no-print">Calculation Date</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {finalReportData.length > 0 ? (
-                                    finalReportData.map(client => (
-                                        <tr key={client.clientId}>
-                                            <td className="border p-2">{client.clientId}</td>
-                                            <td className="border p-2">{client.fullName}</td>
-                                            <td className="border p-2">SLE {(client.compSvgBal || 0).toFixed(2)}</td>
-                                            <td className="border p-2">SLE {(client.volSvgBal || 0).toFixed(2)}</td>
-                                            <td className="border p-2">SLE {((client.compSvgBal || 0) + (client.volSvgBal || 0)).toFixed(2)}</td>
-                                            <td className="border p-2"></td>
-                                            <td className="border p-2"></td>
-                                            <td className="border p-2"></td>
-                                            <td className="border p-2">{client.repaymentStartDate}</td>
-                                            <td className="border p-2">{client.months}</td>
-                                            <td className="border p-2">{client.repaymentCount}</td>
-                                            <td className="border p-2">SLE {(client.repaymentAmount || 0).toFixed(2)}</td>
-                                            <td className="border p-2">SLE {(client.loanOutstanding || 0).toFixed(2)}</td>
-                                            <td className="border p-2">SLE {(client.totalRepaymentSoFar || 0).toFixed(2)}</td>
-                                            <td className="border p-2">SLE {(client.expectedPayment || 0).toFixed(2)}</td>
-                                            <td className={`border p-2 ${client.overdueAmount > 0 ? 'text-red-500' : ''}`}>
-                                                SLE {(client.overdueAmount || 0).toFixed(2)}
-                                            </td>
-                                            <td className="border p-2"> </td>
-                                        </tr>
-                                    ))
+                                    finalReportData.map(client => {
+                                        const calculationDate = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
+                                        const { expectedPayment, overdueAmount, months } = calculateClientMetrics(client, calculationDate);
+
+                                        return (
+                                            <tr key={client.clientId}>
+                                                <td className="border p-2">{client.clientId}</td>
+                                                <td className="border p-2">{client.fullName}</td>
+                                                <td className="border p-2">SLE {(client.compSvgBal || 0).toFixed(2)}</td>
+                                                <td className="border p-2">SLE {(client.volSvgBal || 0).toFixed(2)}</td>
+                                                <td className="border p-2">SLE {((client.compSvgBal || 0) + (client.volSvgBal || 0)).toFixed(2)}</td>
+                                                <td className="border p-2"></td>
+                                                <td className="border p-2"></td>
+                                                <td className="border p-2">{client.loanProduct}</td>
+                                                <td className="border p-2">{client.latestPaymentDate.toLocaleDateString()}</td>
+                                                <td className="border p-2">{client.repaymentCount}</td>
+                                                <td className="border p-2">SLE {(client.repaymentAmount || 0).toFixed(2)}</td>
+                                                <td className="border p-2">SLE {(client.loanOutstanding || 0).toFixed(2)}</td>
+                                                <td className="border p-2">SLE {(client.totalRepaymentSoFar || 0).toFixed(2)}</td>
+                                                <td className="border p-2">SLE {(expectedPayment || 0).toFixed(2)}</td>
+                                                <td className={`border p-2 ${overdueAmount > 0 ? 'text-red-500' : ''}`}>
+                                                    SLE {(overdueAmount || 0).toFixed(2)}
+                                                </td>
+                                                <td className="border p-2"> </td>
+                                                <td className="border p-2 no-print">
+                                                    <input
+                                                        type="date"
+                                                        value={calculationDate}
+                                                        onChange={e => setClientDates({
+                                                            ...clientDates,
+                                                            [client.clientId]: e.target.value
+                                                        })}
+                                                        className="w-full"
+                                                    />
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 ) : (
                                     <tr>
-                                        <td colSpan="16" className="text-center p-4 text-gray-500">No data available</td>
+                                        <td colSpan="17" className="text-center p-4 text-gray-500">No data available</td>
                                     </tr>
                                 )}
                             </tbody>
-
-                            {/* 🔹 Table Footer for Totals */}
                             <tfoot className="bg-gray-200 font-semibold">
                                 <tr>
-                                    <td className="border p-2 text-left" colSpan="2">No. of Clients: {finalReportData.length}</td>
+                                    <td className="border p-2 text-left" colSpan="2">
+                                        No. of Clients: {finalReportData.length}
+                                    </td>
                                     <td className="border p-2" colSpan="3"></td>
                                     <td className="border p-2" colSpan="2"></td>
                                     <td className="border p-2" colSpan="2"></td>
                                     <td className="border p-2" colSpan="1"></td>
                                     <td className="border p-2"></td>
-                                    <td className="border p-2">SLE {finalReportData.reduce((sum, c) => sum + (c.repaymentAmount || 0), 0).toFixed(2)}</td>
-                                    <td className="border p-2">SLE {finalReportData.reduce((sum, c) => sum + (c.loanOutstanding || 0), 0).toFixed(2)}</td>
-                                    <td className="border p-2">SLE {finalReportData.reduce((sum, c) => sum + (c.totalRepaymentSoFar || 0), 0).toFixed(2)}</td>
-                                    <td className="border p-2">SLE {finalReportData.reduce((sum, c) => sum + (c.expectedPayment || 0), 0).toFixed(2)}</td>
-                                    <td className="border p-2">SLE {finalReportData.reduce((sum, c) => sum + (c.overdueAmount || 0), 0).toFixed(2)}</td>
+                                    <td className="border p-2">
+                                        SLE {finalReportData.reduce((sum, c) => sum + (c.repaymentAmount || 0), 0).toFixed(2)}
+                                    </td>
+                                    <td className="border p-2">
+                                        SLE {finalReportData.reduce((sum, c) => sum + (c.loanOutstanding || 0), 0).toFixed(2)}
+                                    </td>
+                                    <td className="border p-2">
+                                        SLE {finalReportData.reduce((sum, c) => sum + (c.totalRepaymentSoFar || 0), 0).toFixed(2)}
+                                    </td>
+                                    <td className="border p-2">
+                                        SLE {finalReportData.reduce((sum, c) => sum + (clientMetrics[c.clientId].expectedPayment || 0), 0).toFixed(2)}
+                                    </td>
+                                    <td className="border p-2">
+                                        SLE {finalReportData.reduce((sum, c) => sum + (clientMetrics[c.clientId].overdueAmount || 0), 0).toFixed(2)}
+                                    </td>
                                     <td className="border p-2"></td>
+                                    <td className="border p-2"></td>
+                                    <td className="border p-2 no-print"></td>
                                 </tr>
                             </tfoot>
+
                         </table>
                     )}
-
-                    {/* 🔹 Report Notes */}
                     <div className="mt-10 text-sm">
                         <p className="mb-2">
                             CO's Signature ...............................................

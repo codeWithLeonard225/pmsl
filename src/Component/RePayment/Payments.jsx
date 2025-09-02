@@ -87,6 +87,21 @@ function Payments({ branch }) {
     const [loanOutstanding, setLoanOutstanding] = useState('');
     const [paymentWeeks, setPaymentWeeks] = useState('');
     const [interestRate, setInterestRate] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, []);
 
     // New states for handling loading and errors during data fetching
     const [isLoadingLoanDetails, setIsLoadingLoanDetails] = useState(false);
@@ -112,6 +127,8 @@ function Payments({ branch }) {
     // ✅ ADDED: State for the lists of loans and groups
     const [loanList, setLoanList] = useState([]);
     const [groupList, setGroupList] = useState([]);
+
+    const DELETE_PIN = "1234";
 
     // Helper function to clear fields dependent on loan lookup
     const clearLoanDependentFields = () => {
@@ -320,22 +337,22 @@ function Payments({ branch }) {
     }, []);
 
 
-  // Derived state: Filtered payments list based on search term AND branchId
-const filteredPayments = paymentsList.filter(payment => {
-    const lowerCaseSearchTerm = searchTerm.toLowerCase();
+    // Derived state: Filtered payments list based on search term AND branchId
+    const filteredPayments = paymentsList.filter(payment => {
+        const lowerCaseSearchTerm = searchTerm.toLowerCase();
 
-    // First, filter by the branchId. If the payment's branchId doesn't match, it's excluded.
-    const isFromCurrentBranch = payment.branchId === branchId;
+        // First, filter by the branchId. If the payment's branchId doesn't match, it's excluded.
+        const isFromCurrentBranch = payment.branchId === branchId;
 
-    // Second, filter by the search term. Check if the search term is in fullName, loanId, or clientId.
-    const matchesSearchTerm =
-        (payment.fullName || "").toLowerCase().includes(lowerCaseSearchTerm) ||
-        (payment.loanId || "").toLowerCase().includes(lowerCaseSearchTerm) ||
-        (payment.clientId || "").toLowerCase().includes(lowerCaseSearchTerm);
+        // Second, filter by the search term. Check if the search term is in fullName, loanId, or clientId.
+        const matchesSearchTerm =
+            (payment.fullName || "").toLowerCase().includes(lowerCaseSearchTerm) ||
+            (payment.loanId || "").toLowerCase().includes(lowerCaseSearchTerm) ||
+            (payment.clientId || "").toLowerCase().includes(lowerCaseSearchTerm);
 
-    // Return true only if both conditions are met.
-    return isFromCurrentBranch && matchesSearchTerm;
-});
+        // Return true only if both conditions are met.
+        return isFromCurrentBranch && matchesSearchTerm;
+    });
 
     const clearForm = () => {
         setDate(new Date().toISOString().slice(0, 10));
@@ -354,19 +371,25 @@ const filteredPayments = paymentsList.filter(payment => {
         // Basic validation
         if (!loanId || !fullName || !repaymentAmount) {
             setSaveError("Please fill in Loan ID, Full Name, and Repayment Amount.");
+            setIsSubmitting(false); // Release button
             return;
         }
+
+        if (isSubmitting) return; // Prevent multiple clicks
+        setIsSubmitting(true);
+
         if (parseFloat(paymentWeeks) <= 0) {
             setSaveError("Payment Weeks must be greater than zero to calculate Actual Amount.");
+            setIsSubmitting(false); // Release button
             return;
         }
 
         setIsSaving(true);
-        setSaveError('');
-        setSaveSuccess('');
+        setSaveError("");
+        setSaveSuccess("");
 
         const paymentData = {
-            branchId: branchId, // ✅ ADDED: Include branchId in the payment data
+            branchId: branchId,
             date,
             loanId,
             clientId,
@@ -383,7 +406,9 @@ const filteredPayments = paymentsList.filter(payment => {
             interestRate: parseFloat(interestRate || 0),
             loanOutstanding: parseFloat(loanOutstanding || 0),
             paymentWeeks: parseInt(paymentWeeks || 0, 10),
-            createdAt: editingPaymentId ? paymentsList.find(p => p.id === editingPaymentId)?.createdAt : serverTimestamp(),
+            createdAt: editingPaymentId
+                ? paymentsList.find((p) => p.id === editingPaymentId)?.createdAt
+                : serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
 
@@ -404,8 +429,10 @@ const filteredPayments = paymentsList.filter(payment => {
             setSaveError(`Failed to save payment: ${e.message}`);
         } finally {
             setIsSaving(false);
+            setTimeout(() => setIsSubmitting(false), 5000); // Re-enable after 5s
         }
     };
+
 
     const handleEdit = (payment) => {
         setEditingPaymentId(payment.id);
@@ -436,6 +463,16 @@ const filteredPayments = paymentsList.filter(payment => {
             return;
         }
 
+          const enteredPin = prompt("Please enter the delete PIN to confirm:");
+        if (enteredPin === null) {
+            alert("Deletion cancelled.");
+            return;
+        }
+        if (enteredPin !== DELETE_PIN) {
+            alert("Incorrect PIN. Deletion cancelled.");
+            return;
+        }
+
         try {
             await deleteDoc(doc(db, "payments", id));
             setSaveSuccess("Payment deleted successfully! 🗑️");
@@ -450,22 +487,33 @@ const filteredPayments = paymentsList.filter(payment => {
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">
-                    {editingPaymentId ? 'Edit Payment' : 'Payments Form'}
-                </h1>
+                <div className="flex items-center justify-between text-center">
+                    {/* Header Title */}
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2 border-b pb-4">
+                        {editingPaymentId ? 'Edit Payment' : 'Payments Form'}
+                    </h1>
+
+                    {/* Online / Offline Status */}
+                    <span
+                        className={`ml-4 text-sm font-semibold ${isOnline ? "text-green-600" : "text-red-600"
+                            }`}
+                    >
+                        {isOnline ? "✅ Online" : "⚠️ Offline"}
+                    </span>
+                </div>
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {/* NEW: Branch ID Input Field */}
-                            <Input
-                                id="branchId"
-                                label="Branch ID"
-                                type="text"
-                                value={branchId}
-                                onChange={(e) => setBranchId(e.target.value)}
-                                placeholder="e.g., B001"
-                                readOnly // Make this read-only so users can't change the assigned branch
+                    {/* NEW: Branch ID Input Field */}
+                    <Input
+                        id="branchId"
+                        label="Branch ID"
+                        type="text"
+                        value={branchId}
+                        onChange={(e) => setBranchId(e.target.value)}
+                        placeholder="e.g., B001"
+                        readOnly // Make this read-only so users can't change the assigned branch
 
-                            />
+                    />
                     {/* General Details Section */}
                     <Input id="date" label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
                     <Input
@@ -495,7 +543,7 @@ const filteredPayments = paymentsList.filter(payment => {
                         readOnly={areLoanFieldsReadOnly}
                         disabled={areLoanFieldsReadOnly}
                     />
-                    
+
                     {/* These fields will be populated from the fetched data and made read-only */}
                     <Input
                         id="fullName"
@@ -646,11 +694,24 @@ const filteredPayments = paymentsList.filter(payment => {
                     <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-6">
                         <Button
                             type="submit"
-                            className="w-full py-3 font-bold text-lg shadow-md"
-                            disabled={isLoadingLoanDetails || isSaving}
+                            className={`w-full py-3 font-bold text-lg shadow-md transition-colors duration-200
+    ${isSaving || isLoadingLoanDetails || !isOnline
+                                    ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                                    : "bg-indigo-600 text-white hover:bg-indigo-700"}
+  `}
+                            disabled={isLoadingLoanDetails || isSaving || !isOnline}
                         >
-                            {isSaving ? 'Saving...' : (editingPaymentId ? 'Update Payment' : 'Save Payment')}
+                            {isSaving
+                                ? "💾 Saving..."
+                                : isLoadingLoanDetails
+                                    ? "⏳ Loading Loan..."
+                                    : !isOnline
+                                        ? "⚠️ Offline"
+                                        : editingPaymentId
+                                            ? "Update Payment"
+                                            : "Save Payment"}
                         </Button>
+
                         {editingPaymentId && (
                             <Button
                                 type="button"

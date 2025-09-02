@@ -13,8 +13,9 @@ import {
     doc,
     deleteDoc,
     onSnapshot, // Used for real-time data fetching
-      query, // Import query
+    query, // Import query
     where, // Import where
+    getDocs, writeBatch,
 } from 'firebase/firestore';
 
 /**
@@ -93,6 +94,21 @@ function StaffForm() {
     const [address, setAddress] = useState('');
     const [registrationDate, setRegistrationDate] = useState(new Date().toISOString().slice(0, 10)); // Defaults to today's date
 
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, []);
+
     // State for photo URL from Cloudinary and a ref for the hidden file input
     const [photoUrl, setPhotoUrl] = useState('');
     const fileInputRef = useRef(null);
@@ -112,7 +128,7 @@ function StaffForm() {
 
     // Loading state for data fetching
     const [loading, setLoading] = useState(true); // Set to true initially as data is loading on mount
-    
+
     // ✨ NEW: State for the current branchId, retrieved from session storage
     const [currentBranchId, setCurrentBranchId] = useState('');
 
@@ -139,10 +155,10 @@ function StaffForm() {
         if (!currentBranchId) return;
 
         setLoading(true); // Start loading before fetching
-        
+
         // ✨ NEW: Filter the data by the current branch ID
         const q = query(staffCollectionRef, where("branchId", "==", currentBranchId));
-        
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedStaff = snapshot.docs.map((doc) => ({
                 ...doc.data(),
@@ -188,13 +204,13 @@ function StaffForm() {
         // Only generate a new ID if not in editing mode
         if (!editingStaffId) {
             const latestStaffNumber = staffList.reduce((max, staff) => {
-                const numMatch = (staff.staffId || "pmcs-00").match(/^pmcs-(\d+)$/i);
+                const numMatch = (staff.staffId || "pmsd-00").match(/^pmsd-(\d+)$/i);
                 const num = numMatch ? parseInt(numMatch[1], 10) : 0;
                 return num > max ? num : max;
             }, 0);
 
             const newNumber = latestStaffNumber + 1;
-            const formattedId = `pmcs-${String(newNumber).padStart(2, '0')}`;
+            const formattedId = `pmsd-${String(newNumber).padStart(2, '0')}`;
             setStaffId(formattedId);
         }
     }, [staffList, editingStaffId]);
@@ -256,11 +272,43 @@ function StaffForm() {
         setRegistrationDate(new Date().toISOString().slice(0, 10));
     };
 
+    const updateStaffNameEverywhere = async (oldName, newName) => {
+        try {
+            // Update in Clients
+            const clientsSnap = await getDocs(query(collection(db, "clients"), where("staffName", "==", oldName)));
+            const batch1 = writeBatch(db);
+            clientsSnap.forEach(docSnap => {
+                batch1.update(doc(db, "clients", docSnap.id), { staffName: newName });
+            });
+            await batch1.commit();
+
+            // Update in Loans
+            const loansSnap = await getDocs(query(collection(db, "loans"), where("staffName", "==", oldName)));
+            const batch2 = writeBatch(db);
+            loansSnap.forEach(docSnap => {
+                batch2.update(doc(db, "loans", docSnap.id), { staffName: newName });
+            });
+            await batch2.commit();
+
+            // Update in Payments
+            const paymentsSnap = await getDocs(query(collection(db, "payments"), where("staffName", "==", oldName)));
+            const batch3 = writeBatch(db);
+            paymentsSnap.forEach(docSnap => {
+                batch3.update(doc(db, "payments", docSnap.id), { staffName: newName });
+            });
+            await batch3.commit();
+
+            console.log("✅ Staff name updated across all collections!");
+        } catch (error) {
+            console.error("Error updating staffName everywhere:", error);
+        }
+    };
+
     // Handle form submission (add new staff or update existing staff)
     const handleSubmit = async (event) => {
         event.preventDefault();
 
-        if (!fullName || !gender || !dateOfBirth || !telephone || !address || !currentBranchId) {
+        if (!fullName || !gender || !currentBranchId) {
             alert("Please fill in all required fields and ensure a Branch ID is available.");
             return;
         }
@@ -284,12 +332,24 @@ function StaffForm() {
         try {
             if (editingStaffId) {
                 const staffDocRef = doc(db, "staffMembers", editingStaffId);
+
+                // Get the old staff data first
+                const oldStaff = staffList.find(s => s.id === editingStaffId);
+                const oldName = oldStaff?.fullName;
+
                 await updateDoc(staffDocRef, staffData);
+
+                // If fullName changed, update it everywhere
+                if (oldName && oldName !== fullName) {
+                    await updateStaffNameEverywhere(oldName, fullName);
+                }
+
                 alert("Staff details updated successfully! ✅");
             } else {
                 await addDoc(staffCollectionRef, staffData);
                 alert("Staff registered successfully! 🎉");
             }
+
 
             clearForm();
         } catch (error) {
@@ -337,9 +397,21 @@ function StaffForm() {
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             {/* Staff Registration Form Section */}
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">
-                    {editingStaffId ? 'Edit Staff Details' : 'Staff Registration Form'}
-                </h1>
+                <div className="flex items-center justify-between text-center">
+                    {/* Header Title */}
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2 border-b pb-4">
+                        {editingStaffId ? 'Edit Staff Details' : 'Staff Registration Form'}
+                    </h1>
+
+                    {/* Online / Offline Status */}
+                    <span
+                        className={`ml-4 text-sm font-semibold ${isOnline ? "text-green-600" : "text-red-600"
+                            }`}
+                    >
+                        {isOnline ? "✅ Online" : "⚠️ Offline"}
+                    </span>
+                </div>
+
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Registration Date (Read-only) */}
