@@ -445,7 +445,7 @@ useEffect(() => {
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Registration Date (Read-only) */}
-                    <Input id="registrationDate" label="Registration Date" type="date" value={registrationDate} onChange={(e) => setRegistrationDate(e.target.value)} readOnly icon={FaCalendarAlt} />
+                    <Input id="registrationDate" label="Registration Date" type="date" value={registrationDate} onChange={(e) => setRegistrationDate(e.target.value)}  icon={FaCalendarAlt} />
 
                     {/* Client ID (Read-only display, now showing sequential ID) */}
                     <div className="flex flex-col space-y-1">

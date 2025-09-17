@@ -172,7 +172,7 @@ function Savings({ branch }) {
         }
     }, [clientId, editingSavingsId]);
 
-    // UseEffect to fetch savings data from Firestore in real-time
+   // UseEffect to fetch savings data from Firestore in real-time
     useEffect(() => {
         const savingsCollectionRef = collection(db, 'savings');
         const q = query(savingsCollectionRef, orderBy('createdAt', 'desc'));
@@ -181,13 +181,22 @@ function Savings({ branch }) {
         setSavingsFetchError('');
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedSavings = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                date: doc.data().date,
-                createdAt: doc.data().createdAt ? doc.data().createdAt.toDate().toISOString() : null,
-                updatedAt: doc.data().updatedAt ? doc.data().updatedAt.toDate().toISOString() : null
-            }));
+            const fetchedSavings = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    date: data.date,
+                    // Check if createdAt exists and is a Timestamp before converting
+                    createdAt: data.createdAt && typeof data.createdAt.toDate === 'function' 
+                        ? data.createdAt.toDate().toISOString() 
+                        : null,
+                    // Check if updatedAt exists and is a Timestamp before converting
+                    updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
+                        ? data.updatedAt.toDate().toISOString() 
+                        : null
+                };
+            });
             setSavingsList(fetchedSavings);
             setLoadingSavings(false);
         }, (error) => {
