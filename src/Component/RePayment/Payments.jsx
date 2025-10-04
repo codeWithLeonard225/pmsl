@@ -17,15 +17,6 @@ import {
 
 /**
  * A simple, reusable Input component with basic styling.
- * @param {object} props - The component props.
- * @param {string} props.id - The ID of the input.
- * @param {string} props.label - The label text for the input.
- * @param {string} props.type - The type of input (e.g., 'text', 'date', 'number').
- * @param {any} props.value - The current value of the input.
- * @param {function} props.onChange - The change event handler.
- * @param {string} props.placeholder - The placeholder text.
- * @param {boolean} props.readOnly - If true, the input is read-only.
- * @param {boolean} props.disabled - If true, the input is disabled.
  */
 const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnly = false, disabled = false }) => (
     <div className="flex flex-col space-y-1">
@@ -45,12 +36,6 @@ const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnl
 
 /**
  * A custom button component for the form.
- * @param {object} props - The component props.
- * @param {function} props.onClick - The click event handler.
- * @param {React.ReactNode} props.children - The content of the button.
- * @param {string} props.className - Additional Tailwind classes.
- * @param {string} props.type - Button type (e.g., "button", "submit").
- * @param {boolean} props.disabled - If true, the button is disabled.
  */
 const Button = ({ onClick, children, className = "", type = "button", disabled = false }) => (
     <button
@@ -65,12 +50,14 @@ const Button = ({ onClick, children, className = "", type = "button", disabled =
 
 /**
  * The main Payments Form component.
- * It manages all form state and a table with search, edit, and delete functionality.
  */
 function Payments({ branch }) {
-    // NEW: State for Branch ID
+    // ----------------------------------------------------------------
+    // 1. ALL STATE DECLARATIONS (MOVED TO TOP)
+    // ----------------------------------------------------------------
+
+    // Core States
     const [branchId, setBranchId] = useState('');
-    // State for all form fields
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [loanId, setLoanId] = useState('');
     const [clientId, setClientId] = useState('');
@@ -87,48 +74,37 @@ function Payments({ branch }) {
     const [loanOutstanding, setLoanOutstanding] = useState('');
     const [paymentWeeks, setPaymentWeeks] = useState('');
     const [interestRate, setInterestRate] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-    useEffect(() => {
-        const handleOnline = () => setIsOnline(true);
-        const handleOffline = () => setIsOnline(false);
+    // ✅ NEW STATES FOR RUNNING TOTALS
+    const [totalRepaymentSoFar, setTotalRepaymentSoFar] = useState('0.00');
+    const [remainingBalanceCalc, setRemainingBalanceCalc] = useState('0.00');
 
-        window.addEventListener("online", handleOnline);
-        window.addEventListener("offline", handleOffline);
-
-        return () => {
-            window.removeEventListener("online", handleOnline);
-            window.removeEventListener("offline", handleOffline);
-        };
-    }, []);
-
-    // New states for handling loading and errors during data fetching
-    const [isLoadingLoanDetails, setIsLoadingLoanDetails] = useState(false);
-    const [loanDetailsError, setLoanDetailsError] = useState('');
-
-    // States for Firestore operations (save/update/delete)
-    const [isSaving, setIsSaving] = useState(false);
-    const [saveError, setSaveError] = useState('');
-    const [saveSuccess, setSaveSuccess] = useState('');
-
-    // State for the list of payments and the currently editing payment ID
+    // List and Editing States
     const [paymentsList, setPaymentsList] = useState([]);
     const [editingPaymentId, setEditingPaymentId] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [loadingPayments, setLoadingPayments] = useState(true);
     const [paymentsError, setPaymentsError] = useState('');
 
-    // Refactored to avoid redundant fetching
-    const [isLoanDataFetched, setIsLoanDataFetched] = useState(false);
+    // Loading and Error States
+    const [isLoadingLoanDetails, setIsLoadingLoanDetails] = useState(false);
+    const [loanDetailsError, setLoanDetailsError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+    const [saveSuccess, setSaveSuccess] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // ✅ ADDED: New state for loading loan/group lists
+    // Misc States
+    const [isLoanDataFetched, setIsLoanDataFetched] = useState(false);
     const [loading, setLoading] = useState(true);
-    // ✅ ADDED: State for the lists of loans and groups
     const [loanList, setLoanList] = useState([]);
     const [groupList, setGroupList] = useState([]);
 
     const DELETE_PIN = "1234";
+
+    // Derived State Logic
+    const areLoanFieldsReadOnly = editingPaymentId !== null || isLoanDataFetched;
 
     // Helper function to clear fields dependent on loan lookup
     const clearLoanDependentFields = () => {
@@ -148,27 +124,58 @@ function Payments({ branch }) {
         setInterestRate('');
     };
 
+    const clearForm = () => {
+        setDate(new Date().toISOString().slice(0, 10));
+        setLoanId('');
+        clearLoanDependentFields();
+        setEditingPaymentId(null);
+        setLoanDetailsError('');
+        setSaveError('');
+        setSaveSuccess('');
+        setIsLoanDataFetched(false);
+        // Clear running totals
+        setTotalRepaymentSoFar('0.00');
+        setRemainingBalanceCalc('0.00');
+    };
+
+    // ----------------------------------------------------------------
+    // 2. USE EFFECTS 
+    // ----------------------------------------------------------------
+
+    // Effect for Branch ID from props
     useEffect(() => {
         if (branch && branch.branchId) {
             setBranchId(branch.branchId);
         }
     }, [branch]);
 
+    // Effect for Online/Offline status
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, []);
+
     // Effect to fetch loans and groups from Firestore in real-time
     useEffect(() => {
-        if (!branch) {
-            console.warn("branchId is not provided. Cannot fetch loans.");
+        if (!branch || !branch.branchId) {
             setLoading(false);
             return;
         }
 
         setLoading(true);
 
-        // ✅ ADDED: Define collection references here
         const loansCollectionRef = collection(db, "loans");
         const groupsCollectionRef = collection(db, "groups");
 
-        // ✅ Query loans specific to the branchId
+        // Query loans specific to the branchId
         const q = query(
             loansCollectionRef,
             where('branchId', '==', branch.branchId),
@@ -183,11 +190,9 @@ function Payments({ branch }) {
             setLoading(false);
         }, (error) => {
             console.error("Error fetching real-time loan data:", error);
-            alert("Failed to load loan data in real-time. Please check your internet connection and Firebase rules.");
             setLoading(false);
         });
 
-        // Subscribe to groups collection (no branch filter needed here, assuming groups are shared)
         const unsubscribeGroups = onSnapshot(groupsCollectionRef, (snapshot) => {
             const fetchedGroups = snapshot.docs.map((doc) => ({
                 ...doc.data(),
@@ -196,17 +201,15 @@ function Payments({ branch }) {
             setGroupList(fetchedGroups);
         }, (error) => {
             console.error("Error fetching real-time group data:", error);
-            alert("Failed to load group data.");
         });
 
-        // Cleanup function: unsubscribe from listeners when component unmounts
         return () => {
             unsubscribeLoans();
             unsubscribeGroups();
         };
-    }, [branch, branchId]); // Corrected dependencies to include `branch` and `branchId`
+    }, [branch]); // branch includes branchId
 
-    // useEffect Hook to Fetch Loan Details based on loanId
+    // ✅ Effect Hook to Fetch Loan Details & Running Totals based on loanId
     useEffect(() => {
         const fetchLoanDetails = async () => {
             if (loanId && !editingPaymentId) {
@@ -215,14 +218,15 @@ function Payments({ branch }) {
                 setIsLoanDataFetched(false);
 
                 try {
+                    // 1. Fetch Loan details
                     const loansCollectionRef = collection(db, "loans");
-                    const q = query(loansCollectionRef, where("loanId", "==", loanId), where('branchId', '==', branchId)); // Use branchId from state
-                    const querySnapshot = await getDocs(q);
+                    const loanQuery = query(loansCollectionRef, where("loanId", "==", loanId), where('branchId', '==', branchId));
+                    const loanSnapshot = await getDocs(loanQuery);
 
-                    if (!querySnapshot.empty) {
-                        const loanDoc = querySnapshot.docs[0];
-                        const loanData = loanDoc.data();
+                    if (!loanSnapshot.empty) {
+                        const loanData = loanSnapshot.docs[0].data();
 
+                        // Populate form fields from loan data
                         setClientId(loanData.clientId || '');
                         setFullName(loanData.clientName || '');
                         setStaffName(loanData.staffName || '');
@@ -245,22 +249,44 @@ function Payments({ branch }) {
 
                         // Calculate Actual Amount (Loan Outstanding / Payment Weeks)
                         const currentPaymentWeeks = parseFloat(loanData.paymentWeeks || 0);
+                        let calculatedActualAmount = '0';
                         if (currentPaymentWeeks > 0) {
-                            setActualAmount(String(outstanding / currentPaymentWeeks));
-                        } else {
-                            setActualAmount('0');
+                            calculatedActualAmount = String(outstanding / currentPaymentWeeks);
                         }
+                        setActualAmount(calculatedActualAmount);
+
+                        // 2. Fetch all existing payments for this loan ID
+                        const paymentsCollectionRef = collection(db, "payments");
+                        const paymentsQuery = query(paymentsCollectionRef, where("loanId", "==", loanId));
+                        const paymentsSnapshot = await getDocs(paymentsQuery);
+
+                        let totalRepaid = 0;
+                        paymentsSnapshot.forEach(doc => {
+                            const paymentData = doc.data();
+                            // Use actualAmount (Calculated Weekly Payment) for the sum of repayments
+                            totalRepaid += parseFloat(paymentData.repaymentAmount || 0);
+                        });
+
+                        // 3. Calculate and set the running totals
+                        const calculatedRemainingBalance = outstanding - totalRepaid;
+
+                        setTotalRepaymentSoFar(totalRepaid.toFixed(2));
+                        setRemainingBalanceCalc(calculatedRemainingBalance.toFixed(2));
 
                         setIsLoanDataFetched(true);
                         setLoanDetailsError('');
                     } else {
                         setLoanDetailsError(`Loan ID "${loanId}" not found in database.`);
                         clearLoanDependentFields();
+                        setTotalRepaymentSoFar('0.00');
+                        setRemainingBalanceCalc('0.00');
                     }
                 } catch (error) {
                     console.error("Error fetching loan details:", error);
                     setLoanDetailsError("Failed to fetch loan details. Please check your network or try again.");
                     clearLoanDependentFields();
+                    setTotalRepaymentSoFar('0.00');
+                    setRemainingBalanceCalc('0.00');
                 } finally {
                     setIsLoadingLoanDetails(false);
                 }
@@ -268,11 +294,14 @@ function Payments({ branch }) {
                 clearLoanDependentFields();
                 setLoanDetailsError('');
                 setIsLoanDataFetched(false);
+                // Clear running totals when loanId is cleared
+                setTotalRepaymentSoFar('0.00');
+                setRemainingBalanceCalc('0.00');
             }
         };
 
         fetchLoanDetails();
-    }, [loanId, editingPaymentId, branchId]); // Added `branchId` to the dependency array
+    }, [loanId, editingPaymentId, branchId, paymentsList]);
 
     // Recalculate Loan Outstanding and Actual Amount when principal, interestRate, or paymentWeeks change
     useEffect(() => {
@@ -298,7 +327,6 @@ function Payments({ branch }) {
     // useEffect Hook to Fetch ALL Payments from Firestore in real-time
     useEffect(() => {
         const paymentsCollectionRef = collection(db, 'payments');
-        // You may want to add a `where` clause here to filter by `branchId` as well.
         const q = query(paymentsCollectionRef, orderBy('createdAt', 'desc'));
 
         setLoadingPayments(true);
@@ -322,7 +350,8 @@ function Payments({ branch }) {
                                 ? data.updatedAt.toDate().toISOString()
                                 : data.updatedAt || null,
                     };
-                });
+                }).filter(payment => payment.branchId === branchId); // Filter by branchId here
+
                 setPaymentsList(fetchedPayments);
                 setLoadingPayments(false);
             },
@@ -334,36 +363,24 @@ function Payments({ branch }) {
         );
 
         return () => unsubscribe();
-    }, []);
+    }, [branchId]);
 
 
-    // Derived state: Filtered payments list based on search term AND branchId
+    // ----------------------------------------------------------------
+    // 3. ACTION HANDLERS
+    // ----------------------------------------------------------------
+
+    // Derived state: Filtered payments list based on search term (branchId filter is now in the useEffect)
     const filteredPayments = paymentsList.filter(payment => {
         const lowerCaseSearchTerm = searchTerm.toLowerCase();
 
-        // First, filter by the branchId. If the payment's branchId doesn't match, it's excluded.
-        const isFromCurrentBranch = payment.branchId === branchId;
-
-        // Second, filter by the search term. Check if the search term is in fullName, loanId, or clientId.
-        const matchesSearchTerm =
+        // Check if the search term is in fullName, loanId, or clientId.
+        return (
             (payment.fullName || "").toLowerCase().includes(lowerCaseSearchTerm) ||
             (payment.loanId || "").toLowerCase().includes(lowerCaseSearchTerm) ||
-            (payment.clientId || "").toLowerCase().includes(lowerCaseSearchTerm);
-
-        // Return true only if both conditions are met.
-        return isFromCurrentBranch && matchesSearchTerm;
+            (payment.clientId || "").toLowerCase().includes(lowerCaseSearchTerm)
+        );
     });
-
-    const clearForm = () => {
-        setDate(new Date().toISOString().slice(0, 10));
-        setLoanId('');
-        clearLoanDependentFields();
-        setEditingPaymentId(null);
-        setLoanDetailsError('');
-        setSaveError('');
-        setSaveSuccess('');
-        setIsLoanDataFetched(false);
-    };
 
     const handleSubmit = async (event) => {
         event.preventDefault();
@@ -371,16 +388,16 @@ function Payments({ branch }) {
         // Basic validation
         if (!loanId || !fullName || !repaymentAmount) {
             setSaveError("Please fill in Loan ID, Full Name, and Repayment Amount.");
-            setIsSubmitting(false); // Release button
+            setIsSubmitting(false);
             return;
         }
 
-        if (isSubmitting) return; // Prevent multiple clicks
+        if (isSubmitting) return;
         setIsSubmitting(true);
 
         if (parseFloat(paymentWeeks) <= 0) {
             setSaveError("Payment Weeks must be greater than zero to calculate Actual Amount.");
-            setIsSubmitting(false); // Release button
+            setIsSubmitting(false);
             return;
         }
 
@@ -419,8 +436,7 @@ function Payments({ branch }) {
                 setSaveSuccess("Payment updated successfully! ✅");
             } else {
                 const paymentsCollectionRef = collection(db, "payments");
-                const docRef = await addDoc(paymentsCollectionRef, paymentData);
-                console.log("Document written with ID: ", docRef.id);
+                await addDoc(paymentsCollectionRef, paymentData);
                 setSaveSuccess("Payment saved successfully! ✨");
             }
             clearForm();
@@ -429,7 +445,7 @@ function Payments({ branch }) {
             setSaveError(`Failed to save payment: ${e.message}`);
         } finally {
             setIsSaving(false);
-            setTimeout(() => setIsSubmitting(false), 5000); // Re-enable after 5s
+            setTimeout(() => setIsSubmitting(false), 5000);
         }
     };
 
@@ -452,6 +468,8 @@ function Payments({ branch }) {
         setInterestRate(String(payment.interestRate));
         setLoanOutstanding(String(payment.loanOutstanding));
         setPaymentWeeks(String(payment.paymentWeeks));
+
+        // Note: Running totals are not used in edit mode, but we clear the messages
         setLoanDetailsError('');
         setSaveError('');
         setSaveSuccess('');
@@ -459,35 +477,63 @@ function Payments({ branch }) {
     };
 
     const handleDelete = async (id) => {
-        if (!window.confirm("Are you sure you want to delete this payment record?")) {
-            return;
-        }
-
-          const enteredPin = prompt("Please enter the delete PIN to confirm:");
-        if (enteredPin === null) {
-            alert("Deletion cancelled.");
-            return;
-        }
-        if (enteredPin !== DELETE_PIN) {
+        const pin = prompt("Enter PIN to confirm deletion (PIN: 1234)");
+        if (pin !== DELETE_PIN) {
             alert("Incorrect PIN. Deletion cancelled.");
             return;
         }
 
-        try {
-            await deleteDoc(doc(db, "payments", id));
-            setSaveSuccess("Payment deleted successfully! 🗑️");
-        } catch (error) {
-            console.error("Error deleting payment:", error);
-            setSaveError(`Failed to delete payment: ${error.message}`);
+        if (window.confirm("Are you sure you want to delete this payment record?")) {
+            try {
+                const paymentDocRef = doc(db, "payments", id);
+                await deleteDoc(paymentDocRef);
+                setSaveSuccess("Payment deleted successfully! 🗑️");
+                setSaveError('');
+            } catch (error) {
+                console.error("Error deleting payment:", error);
+                setSaveError("Failed to delete payment.");
+            }
         }
     };
 
-    const areLoanFieldsReadOnly = isLoadingLoanDetails || isLoanDataFetched;
+    // ----------------------------------------------------------------
+    // 4. JSX RENDERING
+    // ----------------------------------------------------------------
+    const Input = ({
+        id,
+        label,
+        type = 'text',
+        value,
+        onChange,
+        placeholder,
+        readOnly = false,
+        disabled = false,
+        className = ""   // ✅ add className prop
+    }) => (
+        <div className="flex flex-col space-y-1">
+            <label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</label>
+            <input
+                id={id}
+                type={type}
+                value={value}
+                onChange={onChange}
+                readOnly={readOnly}
+                disabled={disabled}
+                placeholder={placeholder}
+                className={`w-full p-2 border border-gray-300 rounded-md 
+        focus:ring-2 focus:ring-green-500 focus:border-transparent 
+        transition-colors duration-200 
+        ${disabled ? 'cursor-not-allowed' : ''} 
+        ${className}`}  // ✅ custom styles go here
+            />
+        </div>
+    );
+
 
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-                <div className="flex items-center justify-between text-center">
+                <div className="flex items-center justify-between">
                     {/* Header Title */}
                     <h1 className="text-3xl font-bold text-gray-800 mb-2 border-b pb-4">
                         {editingPaymentId ? 'Edit Payment' : 'Payments Form'}
@@ -503,7 +549,7 @@ function Payments({ branch }) {
                 </div>
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* NEW: Branch ID Input Field */}
+                    {/* Header Row */}
                     <Input
                         id="branchId"
                         label="Branch ID"
@@ -511,10 +557,8 @@ function Payments({ branch }) {
                         value={branchId}
                         onChange={(e) => setBranchId(e.target.value)}
                         placeholder="e.g., B001"
-                        readOnly // Make this read-only so users can't change the assigned branch
-
+                        readOnly
                     />
-                    {/* General Details Section */}
                     <Input id="date" label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
                     <Input
                         id="loanId"
@@ -532,7 +576,32 @@ function Payments({ branch }) {
                     {saveError && <p className="col-span-full text-sm text-red-500">{saveError}</p>}
                     {saveSuccess && <p className="col-span-full text-sm text-green-600">{saveSuccess}</p>}
 
-                    {/* NEW: Client ID Input field */}
+                    {/* ✅ NEW: Total Repayment So Far */}
+                    <Input
+                        id="totalRepaymentSoFar"
+                        label="Total Repayment So Far"
+                        type="text"
+                        value={`SLE ${totalRepaymentSoFar}`}
+                        placeholder="Calculated Repaid"
+                        readOnly={true}
+                        disabled={true}
+                        className="bg-blue-100 text-blue-800 font-semibold"  // ✅ Blue theme
+                    />
+
+                    {/* ✅ NEW: Remaining Balance */}
+                    <Input
+                        id="remainingBalanceCalc"
+                        label="Remaining Balance (Calc)"
+                        type="text"
+                        value={`SLE ${remainingBalanceCalc}`}
+                        placeholder="Calculated Balance"
+                        readOnly={true}
+                        disabled={true}
+                        className="bg-red-100 text-yellow-800 font-semibold" // ✅ Yellow theme
+                    />
+
+
+                    {/* Client Details Section */}
                     <Input
                         id="clientId"
                         label="Client ID"
@@ -543,8 +612,6 @@ function Payments({ branch }) {
                         readOnly={areLoanFieldsReadOnly}
                         disabled={areLoanFieldsReadOnly}
                     />
-
-                    {/* These fields will be populated from the fetched data and made read-only */}
                     <Input
                         id="fullName"
                         label="Full Name"
@@ -585,8 +652,6 @@ function Payments({ branch }) {
                         readOnly={areLoanFieldsReadOnly}
                         disabled={areLoanFieldsReadOnly}
                     />
-
-                    {/* Other fields remain as they were, allowing manual input, but some can be read-only if from lookup */}
                     <Input
                         id="repaymentStartDate"
                         label="Repayment Start Date"
@@ -597,7 +662,7 @@ function Payments({ branch }) {
                         disabled={areLoanFieldsReadOnly}
                     />
 
-                    {/* Loan Details Section - select inputs are not directly 'readOnly' by HTML, disabled is better */}
+                    {/* Loan Details Section */}
                     <div className="flex flex-col space-y-1">
                         <label htmlFor="loanOutcome" className="text-sm font-medium text-gray-700">Loan Outcome</label>
                         <select
@@ -613,7 +678,6 @@ function Payments({ branch }) {
                             <option value="Pending">Pending</option>
                         </select>
                     </div>
-
                     <div className="flex flex-col space-y-1">
                         <label htmlFor="loanType" className="text-sm font-medium text-gray-700">Loan Type</label>
                         <select
@@ -630,12 +694,12 @@ function Payments({ branch }) {
                         </select>
                     </div>
 
-                    {/* Actual Amount is now calculated and read-only */}
+                    {/* Financial Inputs */}
                     <Input
                         id="actualAmount"
                         label="Calculated Weekly Payment"
                         type="number"
-                        value={actualAmount}
+                        value={parseFloat(actualAmount).toFixed(2)}
                         onChange={(e) => setActualAmount(e.target.value)}
                         placeholder="Calculated"
                         readOnly={true}
@@ -673,7 +737,7 @@ function Payments({ branch }) {
                         id="loanOutstanding"
                         label="Total Loan Outstanding"
                         type="number"
-                        value={loanOutstanding}
+                        value={parseFloat(loanOutstanding).toFixed(2)}
                         onChange={(e) => setLoanOutstanding(e.target.value)}
                         placeholder="Calculated"
                         readOnly={true}
@@ -695,11 +759,11 @@ function Payments({ branch }) {
                         <Button
                             type="submit"
                             className={`w-full py-3 font-bold text-lg shadow-md transition-colors duration-200
-    ${isSaving || isLoadingLoanDetails || !isOnline
+                                ${isSaving || isLoadingLoanDetails || !isOnline || isSubmitting
                                     ? "bg-gray-400 text-gray-200 cursor-not-allowed"
                                     : "bg-indigo-600 text-white hover:bg-indigo-700"}
-  `}
-                            disabled={isLoadingLoanDetails || isSaving || !isOnline}
+                            `}
+                            disabled={isLoadingLoanDetails || isSaving || !isOnline || isSubmitting}
                         >
                             {isSaving
                                 ? "💾 Saving..."
@@ -730,21 +794,21 @@ function Payments({ branch }) {
             {loadingPayments ? (
                 <p className="text-center text-gray-600">Loading payments...</p>
             ) : paymentsError ? (
-                <p className="text-center text-red-500">{paymentsError}</p>
+                <p className="col-span-full text-center text-red-500">{paymentsError}</p>
             ) : paymentsList.length > 0 && (
                 <div className="bg-white rounded-xl shadow-lg p-8">
                     <h2 className="text-2xl font-bold text-gray-800 mb-4">Payment Records</h2>
                     <div className="flex flex-col md:flex-row justify-between items-center mb-4 space-y-4 md:space-y-0">
                         <Input
                             id="search"
-                            label="Search by Full Name"
+                            label="Search by Name/Loan ID/Client ID"
                             type="text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Enter Full Name"
+                            placeholder="Enter Full Name, Loan ID, or Client ID"
                         />
                         <div className="text-sm font-medium text-gray-600">
-                            Showing {filteredPayments.length} of {paymentsList.length} payments
+                            Showing {filteredPayments.length} of {paymentsList.length} payments (in this branch)
                         </div>
                     </div>
                     <div className="overflow-x-auto">

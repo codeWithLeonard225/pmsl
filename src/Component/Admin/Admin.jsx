@@ -37,6 +37,7 @@ import FullPaid from "../Load Details/FullPaid";
 import PaymentDetails from "../Load Details/PaymentDetails";
 import ProcessingFee from "../Fees Collection/ProcessingFee";
 import GroupReportTransactionGPT from "../Reports/Portfolio Transaction/GroupReportTransactionGPT";
+import ClientReport from "../Reports/ClientsReport/ClientReport";
 
 // --- Navigation Items Configuration (Defined First) ---
 const NAV_ITEMS = [
@@ -98,11 +99,7 @@ const NAV_ITEMS = [
           { key: "paymentdetails", label: "Payment Details", icon: <MdRemoveCircle /> },
         ]
       },
-      { key: "clientReports", label: "Client Reports", icon: <MdPeople />,
-        children: [ // First level of nested children
-          { key: "clientSpecific", label: "Client Specific", icon: <MdPerson /> },
-        ]
-      },
+      
       { key: "systemReports", label: "System Reports", icon: <MdBarChart />,
         children: [ // First level of nested children
           { key: "transactionReports", label: "Transaction Logs", icon: <MdAssignment /> },
@@ -285,10 +282,10 @@ function AdminPanel() {
       case "outstandingBalances": return <OutstandingBalances {...propsWithBranch} />;
       case "fullypaid": return <FullPaid {...propsWithBranch} />;
       case "paymentdetails": return <PaymentDetails {...propsWithBranch} />;
-      case "clientSpecific": return <ClientReports />;
+      
       case "transactionReports": return <div>Transaction Reports Component</div>;
       case "auditLogs": return <div>Audit Logs Component</div>;
-      case "dashboard": return <Dashboard branch={branch} />;
+      case "dashboard": return <ClientReport branch={branch} />;
       default: return <Dashboard branch={branch} />;
     }
   };

@@ -6,6 +6,8 @@ import PaymentDetails from "./Component/Load Details/PaymentDetails";
 import BranchForm from "./Component/Admin/BranchForm";
 import UserForm from "./Component/Admin/UserForm";
 import UpdateLoanOutcome from "./Component/LoanApplicationForm";
+import Staffpage from "./Component/StaffPage/staffpage";
+import StaffPanel from "./Component/StaffPage/StaffPanel";
 
 export default function App() {
   return (
@@ -15,6 +17,7 @@ export default function App() {
         <Route path="/" element={<LoginPage />} />
         <Route path="/user" element={<UserForm />} />
         <Route path="/branch" element={<BranchForm />} />
+        <Route path="/StaffPanel" element={<StaffPanel />} />
 
 
         {/* After login, go to dashboard */}
