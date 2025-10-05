@@ -19,19 +19,33 @@ function ClientReport({ branch }) {
     const [detailedLoanId, setDetailedLoanId] = useState(null);
     // --- END STATES ---
 
+    // 1. Get Branch ID only (for Admin/Branch-wide view)
     useEffect(() => {
         if (branch && branch.branchId) {
             setBranchId(branch.branchId);
+        } else {
+            // Fallback: Check sessionStorage for branchId if not passed by prop
+            const sessionBranchId = sessionStorage.getItem("branchId");
+            if (sessionBranchId) {
+                setBranchId(sessionBranchId);
+            } else {
+                 // Set error if branchId is not available
+                 setError("Branch ID is required for the Admin Client Report.");
+            }
         }
     }, [branch]);
 
+    // 2. Fetch all payments filtered ONLY by branchId
     useEffect(() => {
         if (!branchId) {
-            setLoadingPayments(false);
+            // Loading is already set to false if error is set above
+            if (!error) setLoadingPayments(false); 
             return;
         }
 
         const paymentsCollectionRef = collection(db, "payments");
+        
+        // 🚨 CRITICAL CHANGE: Only filter by branchId. No staff filter.
         const paymentsQuery = query(
             paymentsCollectionRef,
             where("branchId", "==", branchId)
@@ -49,21 +63,21 @@ function ClientReport({ branch }) {
                                 ? data.createdAt.toDate()
                                 : new Date(data.createdAt);
                     }
-                    return { id: doc.id, ...data, createdAt, docId: doc.id }; // Added docId for key
-                }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); // Sort by date descending
+                    return { id: doc.id, ...data, createdAt, docId: doc.id };
+                }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
                 setPayments(fetchedPayments);
                 setLoadingPayments(false);
             },
             (err) => {
                 console.error("Error fetching payments:", err);
-                setError("Failed to load payments.");
+                setError("Failed to load all branch payments.");
                 setLoadingPayments(false);
             }
         );
 
         return () => unsubscribePayments();
-    }, [branchId]);
+    }, [branchId, error]); // Removed staffName dependency
 
     // --- HANDLER FOR BUTTON CLICK SEARCH ---
     const handleSearchByLoanId = () => {
@@ -82,14 +96,14 @@ function ClientReport({ branch }) {
         : 0;
 
 
-    // --- GROUPED REPORT LOGIC ---
+    // --- GROUPED REPORT LOGIC (Remains the same as it groups the full 'payments' array) ---
     const groupByClient = (payments) => {
         const groupedData = {};
         payments.forEach((payment) => {
             const {
                 clientId, fullName,
                 repaymentAmount,
-                actualAmount, // ✅ Added actualAmount to destructuring
+                actualAmount,
                 loanOutstanding,
                 groupId, groupName, staffName, loanOutcome, loanType,
                 loanId, date, principal
@@ -102,7 +116,7 @@ function ClientReport({ branch }) {
                 groupedData[key] = {
                     clientId, fullName, repaymentCount: 0,
                     repaymentAmount: repaymentAmount || 0,
-                    actualAmount: actualAmount || 0, // ✅ Storing actualAmount (Per Week)
+                    actualAmount: actualAmount || 0, 
                     loanOutstanding: loanOutstanding || 0,
                     principal: principal || 0,
                     totalRepaymentSoFar: 0,
@@ -116,13 +130,10 @@ function ClientReport({ branch }) {
                 if (paymentDate > groupedData[key].latestPaymentDate) {
                     groupedData[key].latestPaymentDate = paymentDate;
                 }
-                // When grouping multiple payments for the same loan, keep the latest actualAmount
-                // since it should be constant for the life of the loan.
                 groupedData[key].actualAmount = actualAmount || groupedData[key].actualAmount; 
             }
 
             groupedData[key].repaymentCount += 1;
-            // IMPORTANT: Total Repayment So Far remains summed from individual repaymentAmount transactions
             groupedData[key].totalRepaymentSoFar += repaymentAmount || 0; 
         });
         return Object.values(groupedData);
@@ -150,19 +161,21 @@ function ClientReport({ branch }) {
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-4">Client Repayment Report</h1>
+                <h1 className="text-3xl font-bold text-gray-800 mb-4">
+                    Client Repayment Report (Branch: <span className="text-indigo-600">{branchId || 'N/A'}</span>)
+                </h1>
 
                 {isLoading ? (
-                    <div className="text-center py-4 text-gray-500">Loading initial data...</div>
+                    <div className="text-center py-4 text-gray-500">Loading all branch data...</div>
                 ) : error ? (
-                    <div className="text-center py-4 text-red-500">{error}</div>
+                    <div className="text-center py-4 text-red-600 border border-red-300 bg-red-50 p-4 rounded-lg">{error}</div>
                 ) : (
                     <>
                         {/* ========================================================= */}
                         {/* 🌟 NEW SECTION: DETAILED LOAN TRANSACTIONS (UNGROUPED) 🌟 */}
                         {/* ========================================================= */}
                         <h2 className="text-2xl font-bold text-gray-700 mt-8 mb-4 border-b pb-2">
-                            Detailed Loan Transaction History
+                            Detailed Loan Transaction History (Branch Wide)
                         </h2>
 
                         <div className="mb-6 flex items-center space-x-4">
@@ -181,60 +194,61 @@ function ClientReport({ branch }) {
                             </button>
                         </div>
 
-                        {/* Display the table only if a valid loan ID has been successfully searched */}
+                        {/* ... (Detailed Payments Table - unchanged) */}
                         {detailedLoanId ? (
                             detailedPayments.length > 0 ? (
                                 <>
                                     <h3 className="text-lg font-semibold mb-2">
                                         Transactions for Loan ID: <span className="text-blue-600">{detailedLoanId}</span>
                                     </h3>
-                                    <table className="w-full border-collapse border border-gray-300 text-sm mb-8">
-                                        <thead className="bg-blue-50">
-                                            <tr>
-                                                <th className="border p-2">Date</th>
-                                                <th className="border p-2">Client ID</th>
-                                                <th className="border p-2">Client Name</th>
-                                                <th className="border p-2">Group Name</th>
-                                                <th className="border p-2">Principal</th>
-                                                <th className="border p-2">Repayment</th>
-                                                <th className="border p-2">Outstanding Bal</th>
-                                                <th className="border p-2">Staff Name</th>
-                                                <th className="border p-2">Loan Product</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {detailedPayments.map((payment, index) => (
-                                                <tr key={payment.docId || index}>
-                                                    <td className="border p-2">{formatDate(payment.createdAt)}</td>
-                                                    <td className="border p-2">{payment.clientId}</td>
-                                                    <td className="border p-2 text-left">{payment.fullName}</td>
-                                                    <td className="border p-2 text-left">{payment.groupName}</td>
-                                                    <td className="border p-2">SLE {(payment.principal || 0).toFixed(2)}</td>
-                                                    <td className="border p-2">SLE {(payment.repaymentAmount || 0).toFixed(2)}</td>
-                                                    <td className="border p-2">SLE {(payment.loanOutstanding || 0).toFixed(2)}</td>
-                                                    <td className="border p-2">{payment.staffName}</td>
-                                                    <td className="border p-2">{[payment.loanOutcome, payment.loanType].filter(Boolean).join(" - ")}</td>
-                                                </tr>
-                                            ))}
-                                            
-                                            <tfoot className="bg-gray-200 font-semibold">
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full border-collapse border border-gray-300 text-sm mb-8">
+                                            <thead className="bg-blue-50">
                                                 <tr>
-                                                    <td colSpan="4" className="border p-2 text-right">Initial Principal:</td>
-                                                    <td className="border p-2">
-                                                        SLE {initialPrincipal.toFixed(2)}
-                                                    </td>
-                                                    <td className="border p-2 text-right">Total Repayment Paid:</td>
-                                                    <td className="border p-2" colSpan="3">
-                                                        SLE {detailedPayments.reduce((sum, p) => sum + (p.repaymentAmount || 0), 0).toFixed(2)} 
-                                                    </td>
+                                                    <th className="border p-2">Date</th>
+                                                    <th className="border p-2">Client ID</th>
+                                                    <th className="border p-2">Client Name</th>
+                                                    <th className="border p-2">Group Name</th>
+                                                    <th className="border p-2">Principal</th>
+                                                    <th className="border p-2">Repayment</th>
+                                                    <th className="border p-2">Outstanding Bal</th>
+                                                    <th className="border p-2">Staff Name</th>
+                                                    <th className="border p-2">Loan Product</th>
                                                 </tr>
-                                            </tfoot>
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                {detailedPayments.map((payment, index) => (
+                                                    <tr key={payment.docId || index}>
+                                                        <td className="border p-2">{formatDate(payment.createdAt)}</td>
+                                                        <td className="border p-2">{payment.clientId}</td>
+                                                        <td className="border p-2 text-left">{payment.fullName}</td>
+                                                        <td className="border p-2 text-left">{payment.groupName}</td>
+                                                        <td className="border p-2">SLE {(payment.principal || 0).toFixed(2)}</td>
+                                                        <td className="border p-2">SLE {(payment.repaymentAmount || 0).toFixed(2)}</td>
+                                                        <td className="border p-2">SLE {(payment.loanOutstanding || 0).toFixed(2)}</td>
+                                                        <td className="border p-2">{payment.staffName}</td>
+                                                        <td className="border p-2">{[payment.loanOutcome, payment.loanType].filter(Boolean).join(" - ")}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                             <tfoot className="bg-gray-200 font-semibold">
+                                                    <tr>
+                                                        <td colSpan="4" className="border p-2 text-right">Initial Principal:</td>
+                                                        <td className="border p-2">
+                                                            SLE {initialPrincipal.toFixed(2)}
+                                                        </td>
+                                                        <td className="border p-2 text-right">Total Repayment Paid:</td>
+                                                        <td className="border p-2" colSpan="3">
+                                                            SLE {detailedPayments.reduce((sum, p) => sum + (p.repaymentAmount || 0), 0).toFixed(2)}
+                                                        </td>
+                                                    </tr>
+                                                </tfoot>
+                                        </table>
+                                    </div>
                                 </>
                             ) : (
                                 <div className="text-center py-4 text-gray-500 border p-4 mb-8">
-                                    No records found for Loan ID: **{detailedLoanId}**. Please check the ID and try again.
+                                    No records found for Loan ID: **{detailedLoanId}** in this branch.
                                 </div>
                             )
                         ) : (
@@ -247,7 +261,7 @@ function ClientReport({ branch }) {
                         {/* 📉 ORIGINAL SECTION: GROUPED LOAN REPORT (SUMMARIZED) 📉 */}
                         {/* ========================================================= */}
                         <h2 className="text-2xl font-bold text-gray-700 mt-8 mb-4 border-b pb-2">
-                            Grouped Client Summary Report
+                            Grouped Client Summary Report (Branch Wide)
                         </h2>
 
                         {/* 🔍 Search Box for Grouped Data */}
@@ -261,75 +275,78 @@ function ClientReport({ branch }) {
                             />
                         </div>
 
-                        <table className="w-full border-collapse border border-gray-300 text-sm">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="border p-2">Client ID</th>
-                                    <th className="border p-2">Client Name</th>
-                                    <th className="border p-2">Loan ID</th>
-                                    <th className="border p-2">Loan Prod</th>
-                                    <th className="border p-2">Group Name</th>
-                                    <th className="border p-2">Staff Name</th>
-                                    <th className="border p-2">Principal</th>
-                                    <th className="border p-2">Amount (Per Week)</th> 
-                                    <th className="border p-2">Loan Outstanding (Latest)</th>
-                                    <th className="border p-2">Total Repayment So Far</th>
-                                    <th className="border p-2">Weeks Paid</th>
-                                    <th className="border p-2">Remaining Balance (Calc)</th> 
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredGroupedData.length > 0 ? (
-                                    filteredGroupedData.map((client) => {
-                                        const actualAmount = client.actualAmount || 0; 
-                                        const totalRepaymentSoFar = client.totalRepaymentSoFar || 0; 
-
-                                        const weeksPaid =
-                                            (actualAmount !== 0)
-                                                ? totalRepaymentSoFar / actualAmount
-                                                : 0;
-
-                                        const rowKey = `${client.clientId}-${client.loanId}`;
-
-                                        return (
-                                            <tr key={rowKey}>
-                                                <td className="border p-2">{client.clientId}</td>
-                                                <td className="border p-2 text-left">{client.fullName}</td>
-                                                <td className="border p-2">{client.loanId}</td>
-                                                <td className="border p-2">{client.loanProduct}</td>
-                                                <td className="border p-2 text-left">{client.groupName}</td>
-                                                <td className="border p-2 text-left">{client.staffName}</td>
-                                                <td className="border p-2">
-                                                    SLE {(client.principal || 0).toFixed(2)}
-                                                </td>
-                                                <td className="border p-2">
-                                                    SLE {actualAmount.toFixed(2)} 
-                                                </td>
-                                                <td className="border p-2">
-                                                    SLE {(client.loanOutstanding || 0).toFixed(2)}
-                                                </td>
-                                                <td className="border p-2">
-                                                    SLE {totalRepaymentSoFar.toFixed(2)} 
-                                                </td>
-                                                <td className="border p-2">
-                                                    {Math.round(weeksPaid)} week/s
-                                                </td>
-                                          
-                                                <td className="border p-2">
-                                                    SLE {((client.loanOutstanding || 0) - totalRepaymentSoFar).toFixed(2)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
+                        {/* ... (Grouped Data Table - unchanged) */}
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full border-collapse border border-gray-300 text-sm">
+                                <thead className="bg-gray-100">
                                     <tr>
-                                        <td colSpan="13" className="text-center p-4 text-gray-500">
-                                            No data available matching "{search}"
-                                        </td>
+                                        <th className="border p-2">Client ID</th>
+                                        <th className="border p-2">Client Name</th>
+                                        <th className="border p-2">Loan ID</th>
+                                        <th className="border p-2">Loan Prod</th>
+                                        <th className="border p-2">Group Name</th>
+                                        <th className="border p-2">Staff Name</th>
+                                        <th className="border p-2">Principal</th>
+                                        <th className="border p-2">Amount (Per Week)</th>
+                                        <th className="border p-2">Loan Outstanding (Latest)</th>
+                                        <th className="border p-2">Total Repayment So Far</th>
+                                        <th className="border p-2">Weeks Paid</th>
+                                        <th className="border p-2">Remaining Balance (Calc)</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {filteredGroupedData.length > 0 ? (
+                                        filteredGroupedData.map((client) => {
+                                            const actualAmount = client.actualAmount || 0;
+                                            const totalRepaymentSoFar = client.totalRepaymentSoFar || 0;
+
+                                            const weeksPaid =
+                                                (actualAmount !== 0)
+                                                    ? totalRepaymentSoFar / actualAmount
+                                                    : 0;
+
+                                            const rowKey = `${client.clientId}-${client.loanId}`;
+
+                                            return (
+                                                <tr key={rowKey}>
+                                                    <td className="border p-2">{client.clientId}</td>
+                                                    <td className="border p-2 text-left">{client.fullName}</td>
+                                                    <td className="border p-2">{client.loanId}</td>
+                                                    <td className="border p-2">{client.loanProduct}</td>
+                                                    <td className="border p-2 text-left">{client.groupName}</td>
+                                                    <td className="border p-2 text-left">{client.staffName}</td>
+                                                    <td className="border p-2">
+                                                        SLE {(client.principal || 0).toFixed(2)}
+                                                    </td>
+                                                    <td className="border p-2">
+                                                        SLE {actualAmount.toFixed(2)}
+                                                    </td>
+                                                    <td className="border p-2">
+                                                        SLE {(client.loanOutstanding || 0).toFixed(2)}
+                                                    </td>
+                                                    <td className="border p-2">
+                                                        SLE {totalRepaymentSoFar.toFixed(2)}
+                                                    </td>
+                                                    <td className="border p-2">
+                                                        {Math.round(weeksPaid)} week/s
+                                                    </td>
+
+                                                    <td className="border p-2">
+                                                        SLE {((client.loanOutstanding || 0) - totalRepaymentSoFar).toFixed(2)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    ) : (
+                                        <tr>
+                                            <td colSpan="13" className="text-center p-4 text-gray-500">
+                                                No data available matching "{search}" in this branch.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </>
                 )}
             </div>

@@ -18,7 +18,7 @@ import {
 /**
  * A simple, reusable Input component with basic styling.
  */
-const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnly = false, disabled = false }) => (
+const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnly = false, disabled = false, className = "" }) => (
     <div className="flex flex-col space-y-1">
         <label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</label>
         <input
@@ -29,7 +29,7 @@ const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnl
             readOnly={readOnly}
             disabled={disabled}
             placeholder={placeholder}
-            className={`w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors duration-200 ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            className={`w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors duration-200 ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''} ${className}`}
         />
     </div>
 );
@@ -48,16 +48,31 @@ const Button = ({ onClick, children, className = "", type = "button", disabled =
     </button>
 );
 
+// Helper for Spinner (re-adding for completeness)
+const Spinner = () => (
+    <div className="flex justify-center items-center py-8">
+        <div
+            className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"
+            role="status"
+            aria-label="Loading"
+        >
+            <span className="sr-only">Loading...</span>
+        </div>
+    </div>
+);
+
+
 /**
  * The main Payments Form component.
  */
 function Payments({ branch }) {
     // ----------------------------------------------------------------
-    // 1. ALL STATE DECLARATIONS (MOVED TO TOP)
+    // 1. ALL STATE DECLARATIONS
     // ----------------------------------------------------------------
 
     // Core States
     const [branchId, setBranchId] = useState('');
+    const [branchIdError, setBranchIdError] = useState(null); // NEW ERROR STATE
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [loanId, setLoanId] = useState('');
     const [clientId, setClientId] = useState('');
@@ -76,7 +91,7 @@ function Payments({ branch }) {
     const [interestRate, setInterestRate] = useState('');
     const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-    // ✅ NEW STATES FOR RUNNING TOTALS
+    // Running Totals
     const [totalRepaymentSoFar, setTotalRepaymentSoFar] = useState('0.00');
     const [remainingBalanceCalc, setRemainingBalanceCalc] = useState('0.00');
 
@@ -142,12 +157,26 @@ function Payments({ branch }) {
     // 2. USE EFFECTS 
     // ----------------------------------------------------------------
 
-    // Effect for Branch ID from props
+    // 🌟 FIX: Robust logic to determine branchId from prop or session storage
     useEffect(() => {
+        let id;
         if (branch && branch.branchId) {
-            setBranchId(branch.branchId);
+            id = branch.branchId;
+        } else {
+            // Fallback: Check sessionStorage for branchId
+            id = sessionStorage.getItem("branchId");
+        }
+
+        if (id) {
+            setBranchId(id);
+            setBranchIdError(null);
+        } else {
+            // Error handling if branchId cannot be determined
+            setBranchIdError("Branch ID could not be determined. Please ensure you are logged in or the branch prop is provided.");
+            setLoading(false); 
         }
     }, [branch]);
+
 
     // Effect for Online/Offline status
     useEffect(() => {
@@ -165,7 +194,8 @@ function Payments({ branch }) {
 
     // Effect to fetch loans and groups from Firestore in real-time
     useEffect(() => {
-        if (!branch || !branch.branchId) {
+        // Run only if branchId is set and no critical error
+        if (!branchId || branchIdError) {
             setLoading(false);
             return;
         }
@@ -176,12 +206,12 @@ function Payments({ branch }) {
         const groupsCollectionRef = collection(db, "groups");
 
         // Query loans specific to the branchId
-        const q = query(
+        const qLoans = query(
             loansCollectionRef,
-            where('branchId', '==', branch.branchId),
+            where('branchId', '==', branchId), // Use local branchId state
         );
 
-        const unsubscribeLoans = onSnapshot(q, (snapshot) => {
+        const unsubscribeLoans = onSnapshot(qLoans, (snapshot) => {
             const fetchedLoans = snapshot.docs.map((doc) => ({
                 ...doc.data(),
                 id: doc.id
@@ -193,7 +223,13 @@ function Payments({ branch }) {
             setLoading(false);
         });
 
-        const unsubscribeGroups = onSnapshot(groupsCollectionRef, (snapshot) => {
+        // Query groups specific to the branchId
+        const qGroups = query(
+            groupsCollectionRef,
+            where('branchId', '==', branchId), // Filter groups by branchId
+        );
+
+        const unsubscribeGroups = onSnapshot(qGroups, (snapshot) => {
             const fetchedGroups = snapshot.docs.map((doc) => ({
                 ...doc.data(),
                 id: doc.id
@@ -207,18 +243,21 @@ function Payments({ branch }) {
             unsubscribeLoans();
             unsubscribeGroups();
         };
-    }, [branch]); // branch includes branchId
+    }, [branchId, branchIdError]); // Depend on branchId and error
 
-    // ✅ Effect Hook to Fetch Loan Details & Running Totals based on loanId
+    // Effect Hook to Fetch Loan Details & Running Totals based on loanId
     useEffect(() => {
         const fetchLoanDetails = async () => {
+            // Add branchIdError check
+            if (!branchId || branchIdError) return;
+
             if (loanId && !editingPaymentId) {
                 setIsLoadingLoanDetails(true);
                 setLoanDetailsError('');
                 setIsLoanDataFetched(false);
 
                 try {
-                    // 1. Fetch Loan details
+                    // 1. Fetch Loan details (Filtered by loanId AND branchId)
                     const loansCollectionRef = collection(db, "loans");
                     const loanQuery = query(loansCollectionRef, where("loanId", "==", loanId), where('branchId', '==', branchId));
                     const loanSnapshot = await getDocs(loanQuery);
@@ -257,13 +296,16 @@ function Payments({ branch }) {
 
                         // 2. Fetch all existing payments for this loan ID
                         const paymentsCollectionRef = collection(db, "payments");
-                        const paymentsQuery = query(paymentsCollectionRef, where("loanId", "==", loanId));
+                        const paymentsQuery = query(
+                            paymentsCollectionRef, 
+                            where("loanId", "==", loanId), 
+                            where('branchId', '==', branchId) // Filter payments by branchId
+                        );
                         const paymentsSnapshot = await getDocs(paymentsQuery);
 
                         let totalRepaid = 0;
                         paymentsSnapshot.forEach(doc => {
                             const paymentData = doc.data();
-                            // Use actualAmount (Calculated Weekly Payment) for the sum of repayments
                             totalRepaid += parseFloat(paymentData.repaymentAmount || 0);
                         });
 
@@ -276,7 +318,7 @@ function Payments({ branch }) {
                         setIsLoanDataFetched(true);
                         setLoanDetailsError('');
                     } else {
-                        setLoanDetailsError(`Loan ID "${loanId}" not found in database.`);
+                        setLoanDetailsError(`Loan ID "${loanId}" not found for this branch.`);
                         clearLoanDependentFields();
                         setTotalRepaymentSoFar('0.00');
                         setRemainingBalanceCalc('0.00');
@@ -301,7 +343,7 @@ function Payments({ branch }) {
         };
 
         fetchLoanDetails();
-    }, [loanId, editingPaymentId, branchId, paymentsList]);
+    }, [loanId, editingPaymentId, branchId, branchIdError, paymentsList]); // Add branchId and branchIdError
 
     // Recalculate Loan Outstanding and Actual Amount when principal, interestRate, or paymentWeeks change
     useEffect(() => {
@@ -326,8 +368,19 @@ function Payments({ branch }) {
 
     // useEffect Hook to Fetch ALL Payments from Firestore in real-time
     useEffect(() => {
+        // Run only if branchId is set and no critical error
+        if (!branchId || branchIdError) {
+            setLoadingPayments(false);
+            return;
+        }
+
         const paymentsCollectionRef = collection(db, 'payments');
-        const q = query(paymentsCollectionRef, orderBy('createdAt', 'desc'));
+        // Filter by branchId at the query level for efficiency if your rules allow
+        const q = query(
+            paymentsCollectionRef, 
+            where('branchId', '==', branchId), // Filter at the query level
+           
+        );
 
         setLoadingPayments(true);
         setPaymentsError('');
@@ -350,9 +403,10 @@ function Payments({ branch }) {
                                 ? data.updatedAt.toDate().toISOString()
                                 : data.updatedAt || null,
                     };
-                }).filter(payment => payment.branchId === branchId); // Filter by branchId here
-
-                setPaymentsList(fetchedPayments);
+                });
+                
+                // No need for a secondary filter, as the query now filters by branchId
+                setPaymentsList(fetchedPayments); 
                 setLoadingPayments(false);
             },
             (error) => {
@@ -363,7 +417,7 @@ function Payments({ branch }) {
         );
 
         return () => unsubscribe();
-    }, [branchId]);
+    }, [branchId, branchIdError]); // Depend on branchId and error
 
 
     // ----------------------------------------------------------------
@@ -384,6 +438,11 @@ function Payments({ branch }) {
 
     const handleSubmit = async (event) => {
         event.preventDefault();
+
+        if (branchIdError) {
+            setSaveError(branchIdError);
+            return;
+        }
 
         // Basic validation
         if (!loanId || !fullName || !repaymentAmount) {
@@ -406,7 +465,7 @@ function Payments({ branch }) {
         setSaveSuccess("");
 
         const paymentData = {
-            branchId: branchId,
+            branchId: branchId, // Use the state variable
             date,
             loanId,
             clientId,
@@ -499,36 +558,14 @@ function Payments({ branch }) {
     // ----------------------------------------------------------------
     // 4. JSX RENDERING
     // ----------------------------------------------------------------
-    const Input = ({
-        id,
-        label,
-        type = 'text',
-        value,
-        onChange,
-        placeholder,
-        readOnly = false,
-        disabled = false,
-        className = ""   // ✅ add className prop
-    }) => (
-        <div className="flex flex-col space-y-1">
-            <label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</label>
-            <input
-                id={id}
-                type={type}
-                value={value}
-                onChange={onChange}
-                readOnly={readOnly}
-                disabled={disabled}
-                placeholder={placeholder}
-                className={`w-full p-2 border border-gray-300 rounded-md 
-        focus:ring-2 focus:ring-green-500 focus:border-transparent 
-        transition-colors duration-200 
-        ${disabled ? 'cursor-not-allowed' : ''} 
-        ${className}`}  // ✅ custom styles go here
-            />
-        </div>
-    );
 
+    if (branchIdError) {
+        return <div className="text-red-600 p-4 bg-red-100 rounded-md font-medium">Critical Error: {branchIdError}</div>;
+    }
+
+    if (loading) {
+        return <Spinner />;
+    }
 
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">

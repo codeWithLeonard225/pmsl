@@ -34,15 +34,7 @@ export default function GeneralReportTransactionGPT() {
     day: "numeric",
   });
 };
-// const getCurrentDay = () => {
-//   const now = new Date();
-//   return now.toLocaleDateString("en-SL", {
-//     weekday: "long", // adds the day of the week
-//     year: "numeric",
-//     month: "long",
-//     day: "numeric",
-//   });
-// };
+
 
 
   // 🔍 Fetch report from Firestore

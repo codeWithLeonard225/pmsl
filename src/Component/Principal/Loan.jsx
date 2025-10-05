@@ -15,17 +15,7 @@ import {
     where
 } from 'firebase/firestore';
 
-/**
- * A simple, reusable Input component with basic styling.
- * @param {object} props - The component props.
- * @param {string} props.id - The ID of the input.
- * @param {string} props.label - The label text for the input.
- * @param {string} props.type - The type of input (e.g., 'text', 'date', 'number').
- * @param {any} props.value - The current value of the input.
- * @param {function} props.onChange - The change event handler.
- * @param {string} props.placeholder - The placeholder text.
- * @param {boolean} props.readOnly - If true, the input is read-only.
- */
+// ... (Input, Button, and Spinner components remain unchanged)
 const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnly = false }) => (
     <div className="flex flex-col space-y-1">
         <label htmlFor={id} className="text-sm font-medium text-gray-700">{label}</label>
@@ -41,13 +31,6 @@ const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnl
     </div>
 );
 
-/**
- * A custom button component for the form.
- * @param {object} props - The component props.
- * @param {function} props.onClick - The click event handler.
- * @param {React.ReactNode} props.children - The content of the button.
- * @param {string} props.className - Additional Tailwind classes.
- */
 const Button = ({ onClick, children, className = "" }) => (
     <button
         type="button"
@@ -58,9 +41,6 @@ const Button = ({ onClick, children, className = "" }) => (
     </button>
 );
 
-/**
- * Spinner component with Tailwind CSS animation.
- */
 const Spinner = () => (
     <div className="flex justify-center items-center py-8">
         <div
@@ -72,10 +52,13 @@ const Spinner = () => (
         </div>
     </div>
 );
+// ----------------------------------------------------------------------
+
 
 function Loan({ branch }) {
     // State for all form fields
     const [branchId, setBranchId] = useState('');
+    const [error, setError] = useState(null); // Added error state
     const [loanId, setLoanId] = useState('');
     const [clientId, setClientId] = useState('');
     const [clientName, setClientName] = useState('');
@@ -126,21 +109,34 @@ function Loan({ branch }) {
     const groupsCollectionRef = collection(db, "groups");
     const clientsCollectionRef = collection(db, "clients");
 
-    // NEW: useEffect to set the branchId state from the prop
+    // 🌟 FIX: Robust logic to determine branchId from prop or session storage
     useEffect(() => {
+        let id;
         if (branch && branch.branchId) {
-            setBranchId(branch.branchId);
+            id = branch.branchId;
+        } else {
+            // Fallback: Check sessionStorage for branchId
+            id = sessionStorage.getItem("branchId");
+        }
+
+        if (id) {
+            setBranchId(id);
+            setError(null);
+        } else {
+            // Error handling if branchId cannot be determined
+            setError("Branch ID could not be determined. Please ensure you are logged in or the branch prop is provided.");
+            setLoading(false); // Stop loading all data
         }
     }, [branch]);
 
     // NEW: Effect to fetch groups from Firestore based on branchId
     useEffect(() => {
-        if (!branchId) return;
+        // Now checks for branchId and error before proceeding
+        if (!branchId || error) return; 
 
         const qGroups = query(
             groupsCollectionRef,
             where('branchId', '==', branchId), // Filter groups by branchId
-
         );
 
         const unsubscribeGroups = onSnapshot(qGroups, (snapshot) => {
@@ -151,11 +147,11 @@ function Loan({ branch }) {
             setGroupList(fetchedGroups);
         }, (error) => {
             console.error("Error fetching real-time group data:", error);
-            alert("Failed to load group data.");
+            setError("Failed to load group data.");
         });
 
         return () => unsubscribeGroups();
-    }, [branchId]); // Re-run when branchId changes
+    }, [branchId, error]); // Re-run when branchId changes
 
     // NEW: Auto-increment logic for Group ID
     useEffect(() => {
@@ -173,9 +169,9 @@ function Loan({ branch }) {
     }, [groupList, editingLoanId, branchId]);
 
 
-    // Effect to fetch loans from Firestore in real-time (already had this)
+    // Effect to fetch loans from Firestore in real-time
     useEffect(() => {
-        if (!branchId) {
+        if (!branchId || error) {
             setLoading(false);
             return;
         }
@@ -201,11 +197,11 @@ function Loan({ branch }) {
         });
 
         return () => unsubscribeLoans();
-    }, [branchId]);
+    }, [branchId, error]);
 
     // NEW: useEffect to fetch client details when clientId changes
     useEffect(() => {
-        if (!clientId) {
+        if (!clientId || error) {
             setClientName('');
             setStaffName('');
             return;
@@ -214,7 +210,8 @@ function Loan({ branch }) {
         setClientLoading(true);
 
         try {
-            const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId));
+            // Filters by both clientId and branchId
+            const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId)); 
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
                     const clientData = snapshot.docs[0].data();
@@ -234,7 +231,7 @@ function Loan({ branch }) {
             setStaffName('');
             setClientLoading(false);
         }
-    }, [clientId, branchId]);
+    }, [clientId, branchId, error]);
 
     // Auto-increment logic for Loan ID (already had this)
     useEffect(() => {
@@ -283,13 +280,17 @@ function Loan({ branch }) {
         setRepaymentStartDate('');
         setInterestRate('');
         setPaymentWeeks('');
-        // setGroupId('');
+        setGroupId('');
         setGroupName('');
         setEditingLoanId(null);
     };
 
     // Handle adding a new group to Firestore
     const handleAddGroup = async () => {
+        if (error) {
+            alert(error);
+            return;
+        }
         if (tempGroupId && tempGroupName && branchId) {
             const newGroupData = {
                 groupId: tempGroupId,
@@ -304,7 +305,7 @@ function Loan({ branch }) {
                 }
                 await addDoc(groupsCollectionRef, newGroupData);
                 alert("Group added successfully! 🤝");
-                // setTempGroupId('');
+                // setTempGroupId(''); // Let the auto-increment handle the new ID
                 setTempGroupName('');
             } catch (error) {
                 console.error("Error adding group to Firestore:", error);
@@ -318,6 +319,11 @@ function Loan({ branch }) {
     // Handle form submission (add new or update existing loan)
     const handleSubmit = async (event) => {
         event.preventDefault();
+        
+        if (error) {
+            alert(error);
+            return;
+        }
 
         if (!clientId || !clientName || !staffName || !loanOutcome || !loanType || !principal || !repaymentStartDate || !interestRate || !paymentWeeks) {
             alert("Please fill in all required loan details.");
@@ -414,6 +420,17 @@ function Loan({ branch }) {
             alert("Failed to delete loan data. Please try again.");
         }
     };
+    
+    // ------------------------------------------------------------------
+    // Simple JSX Render section for completeness (you'd have more here)
+    if (error) {
+        return <div className="text-red-600 p-4 bg-red-100 rounded-md font-medium">{error}</div>;
+    }
+
+    if (loading) {
+        return <Spinner />;
+    }
+
 
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">

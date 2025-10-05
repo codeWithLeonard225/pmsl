@@ -17,17 +17,7 @@ import { db } from '../../../firebase'; // Your Firebase db instance (make sure 
 
 /**
  * A simple, reusable Input component with basic styling.
- * @param {object} props - The component props.
- * @param {string} props.id - The ID of the input.
- * @param {string} props.label - The label text for the input.
- * @param {string} props.type - The type of input (e.g., 'text', 'date', 'number', 'password').
- * @param {any} props.value - The current value of the input.
- * @param {function} props.onChange - The change event handler.
- * @param {string} props.placeholder - The placeholder text.
- * @param {boolean} props.readOnly - If true, the input is read-only.
- * @param {boolean} props.disabled - If true, the input is disabled.
- * @param {boolean} props.error - If true, applies error styling to the input border.
- * @param {string} props.helpText - Additional text displayed below the input.
+ * ... (props definition remains the same)
  */
 const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnly = false, disabled = false, error = false, helpText = '' }) => (
     <div className="flex flex-col space-y-1">
@@ -48,12 +38,7 @@ const Input = ({ id, label, type = 'text', value, onChange, placeholder, readOnl
 
 /**
  * A custom button component for the form.
- * @param {object} props - The component props.
- * @param {function} props.onClick - The click event handler.
- * @param {React.ReactNode} props.children - The content of the button.
- * @param {string} props.className - Additional Tailwind classes.
- * @param {string} props.type - Button type (e.g., "button", "submit").
- * @param {boolean} props.disabled - If true, the button is disabled.
+ * ... (props definition remains the same)
  */
 const Button = ({ onClick, children, className = "", type = "button", disabled = false }) => (
     <button
@@ -87,52 +72,70 @@ const Modal = ({ show, onClose, children }) => {
 
 /**
  * The main Withdrawal Form component.
- * It manages all form state and a table with search, edit, and delete functionality.
  */
 function Withdrawal({ branch }) {
-      // NEW: State for Branch ID
-        const [branchId, setBranchId] = useState('');
-    // State for all form fields
+    // ----------------------------------------------------------------
+    // 1. STATE DECLARATIONS
+    // ----------------------------------------------------------------
+
+    // Core Branch State
+    const [branchId, setBranchId] = useState('');
+    const [branchIdError, setBranchIdError] = useState(null); // ADDED: Error state for branchId
+
+    // Form States
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [clientId, setClientId] = useState('');
     const [clientName, setClientName] = useState('');
     const [amount, setAmount] = useState('');
 
-    // State for the list of withdrawals and the currently editing withdrawal ID
+    // List and Editing States
     const [withdrawalsList, setWithdrawalsList] = useState([]);
     const [editingWithdrawalId, setEditingWithdrawalId] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // States for Firestore operation feedback
+    // Loading and Error States
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
     const [saveSuccess, setSaveSuccess] = useState('');
     const [loadingWithdrawals, setLoadingWithdrawals] = useState(true);
     const [withdrawalsFetchError, setWithdrawalsFetchError] = useState('');
-
-    // State for client ID lookup
     const [isLoadingClient, setIsLoadingClient] = useState(false);
     const [clientLookupError, setClientLookupError] = useState('');
 
-    // --- State for Delete Confirmation ---
+    // Delete States
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [deletePassword, setDeletePassword] = useState('');
     const [deleteTargetId, setDeleteTargetId] = useState(null);
     const [deleteError, setDeleteError] = useState('');
 
-    // IMPORTANT: Define your ADMIN_PASSWORD here.
-    // In a real application, this should NOT be hardcoded in client-side code.
-    // It should be fetched securely from an environment variable or a backend service.
-    const ADMIN_PASSWORD = "1234"; // ⚠️ Change this to a strong, actual password!
+    const ADMIN_PASSWORD = "1234"; // ⚠️ REMEMBER to secure this!
 
-     // NEW: useEffect to set the branchId state from the prop when the component mounts or the prop changes
-        useEffect(() => {
-            if (branch && branch.branchId) {
-                setBranchId(branch.branchId);
-            }
-        }, [branch]);
-    // --- useEffect for fetching clientName when clientId changes ---
+    // ----------------------------------------------------------------
+    // 2. useEffect for Branch ID Determination (Critical for security)
+    // ----------------------------------------------------------------
     useEffect(() => {
+        let id = null;
+
+        if (branch && branch.branchId) {
+            id = branch.branchId;
+        } else if (typeof sessionStorage !== 'undefined') {
+            id = sessionStorage.getItem('branchId');
+        }
+
+        if (id) {
+            setBranchId(id);
+            setBranchIdError(null);
+        } else {
+            setBranchIdError("Error: Branch ID is not available. Please log in again.");
+        }
+    }, [branch]);
+
+    // ----------------------------------------------------------------
+    // 3. useEffect for fetching clientName when clientId changes
+    // ----------------------------------------------------------------
+    useEffect(() => {
+        if (!branchId) return; // Wait until branchId is set
+
         if (clientId && !editingWithdrawalId) {
             const fetchClientName = async () => {
                 setIsLoadingClient(true);
@@ -141,14 +144,19 @@ function Withdrawal({ branch }) {
 
                 try {
                     const clientsCollectionRef = collection(db, "clients");
-                    const q = query(clientsCollectionRef, where("clientId", "==", clientId));
+                    // ADDED: Filter clients by branchId for security
+                    const q = query(
+                        clientsCollectionRef,
+                        where("clientId", "==", clientId),
+                        where("branchId", "==", branchId) 
+                    );
                     const querySnapshot = await getDocs(q);
 
                     if (!querySnapshot.empty) {
                         const clientData = querySnapshot.docs[0].data();
                         setClientName(clientData.fullName || 'N/A');
                     } else {
-                        setClientLookupError("Client ID not found.");
+                        setClientLookupError("Client ID not found for this branch.");
                         setClientName('');
                     }
                 } catch (error) {
@@ -166,12 +174,21 @@ function Withdrawal({ branch }) {
             setClientName('');
             setClientLookupError('');
         }
-    }, [clientId, editingWithdrawalId]);
+    }, [clientId, editingWithdrawalId, branchId]); // Dependency on branchId added
 
-    // --- useEffect for Real-time Withdrawals Data Fetching ---
+    // ----------------------------------------------------------------
+    // 4. useEffect for Real-time Withdrawals Data Fetching (Filtered by Branch ID)
+    // ----------------------------------------------------------------
     useEffect(() => {
+        if (!branchId) return; // Crucial check: Don't fetch if branchId is unknown
+
         const withdrawalsCollectionRef = collection(db, 'withdrawals');
-        const q = query(withdrawalsCollectionRef, orderBy('createdAt', 'desc'));
+        // ADDED: Filter withdrawals by branchId
+        const q = query(
+            withdrawalsCollectionRef,
+            where('branchId', '==', branchId),
+          
+        );
 
         setLoadingWithdrawals(true);
         setWithdrawalsFetchError('');
@@ -181,8 +198,9 @@ function Withdrawal({ branch }) {
                 id: doc.id,
                 ...doc.data(),
                 date: doc.data().date,
-                createdAt: doc.data().createdAt ? doc.data().createdAt.toDate().toISOString() : null,
-                updatedAt: doc.data().updatedAt ? doc.data().updatedAt.toDate().toISOString() : null,
+                // Ensure correct conversion for timestamp fields if they exist
+                createdAt: doc.data().createdAt?.toDate()?.toISOString() || null, 
+                updatedAt: doc.data().updatedAt?.toDate()?.toISOString() || null,
             }));
             setWithdrawalsList(fetchedWithdrawals);
             setLoadingWithdrawals(false);
@@ -193,14 +211,15 @@ function Withdrawal({ branch }) {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [branchId]); // Dependency on branchId added
 
+    // ----------------------------------------------------------------
+    // 5. Filtering for Search Term (List is already filtered by branch)
+    // ----------------------------------------------------------------
     const filteredWithdrawals = withdrawalsList.filter(withdrawal =>
-    withdrawal.branchId === branchId && (
         withdrawal.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         withdrawal.clientId.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-);
+    );
 
     const clearForm = () => {
         setDate(new Date().toISOString().slice(0, 10));
@@ -215,6 +234,11 @@ function Withdrawal({ branch }) {
 
     const handleSubmit = async (event) => {
         event.preventDefault();
+
+        if (!branchId) {
+            setSaveError("Critical Error: Branch ID is missing. Cannot save record.");
+            return;
+        }
 
         if (!clientId || !clientName || amount === '') {
             setSaveError("Please fill in Client ID, Client Name, and Amount.");
@@ -240,7 +264,7 @@ function Withdrawal({ branch }) {
             date,
             clientId,
             clientName,
-            branchId,
+            branchId, // CRITICAL: Ensure branchId is saved with the record
             amount: amountNum,
             createdAt: editingWithdrawalId ? withdrawalsList.find(w => w.id === editingWithdrawalId)?.createdAt : serverTimestamp(),
             updatedAt: serverTimestamp(),
@@ -249,7 +273,9 @@ function Withdrawal({ branch }) {
         try {
             if (editingWithdrawalId) {
                 const withdrawalDocRef = doc(db, "withdrawals", editingWithdrawalId);
-                await updateDoc(withdrawalDocRef, withdrawalData);
+                // NOTE: When editing, we only update fields that are allowed to change, 
+                // but for simplicity here we pass the whole object.
+                await updateDoc(withdrawalDocRef, withdrawalData); 
                 setSaveSuccess("Withdrawal record updated successfully! ✅");
             } else {
                 const withdrawalsCollectionRef = collection(db, "withdrawals");
@@ -317,7 +343,20 @@ function Withdrawal({ branch }) {
         setDeletePassword('');
         setDeleteError('');
     };
-
+    
+    // ----------------------------------------------------------------
+    // 6. Early Return for Critical Errors
+    // ----------------------------------------------------------------
+    if (branchIdError) {
+        return (
+            <div className="container mx-auto p-6 bg-red-100 border border-red-400 text-red-700 min-h-screen flex items-center justify-center">
+                <p className="text-xl font-semibold">
+                    {branchIdError} Access denied or system error.
+                </p>
+            </div>
+        );
+    }
+    
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
@@ -327,7 +366,7 @@ function Withdrawal({ branch }) {
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* General Details Section */}
-                      {/* NEW: Branch ID Input Field */}
+                    {/* Branch ID Input Field - Set as readOnly */}
                     <Input
                         id="branchId"
                         label="Branch ID"
@@ -335,7 +374,8 @@ function Withdrawal({ branch }) {
                         value={branchId}
                         onChange={(e) => setBranchId(e.target.value)}
                         placeholder="e.g., B001"
-                        readOnly // Make this read-only so users can't change the assigned branch
+                        readOnly // Make this read-only
+                        disabled={!branchId}
                     />
                     <Input id="date" label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={isSaving} />
                     <Input
@@ -409,7 +449,7 @@ function Withdrawal({ branch }) {
                             placeholder="Enter Client Name or ID"
                         />
                         <div className="text-sm font-medium text-gray-600">
-                            Showing {filteredWithdrawals.length} of {withdrawalsList.length} records
+                            Showing {filteredWithdrawals.length} of {withdrawalsList.length} records (Filtered by Branch: {branchId})
                         </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -433,13 +473,13 @@ function Withdrawal({ branch }) {
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                             <div className="flex items-center space-x-2">
                                                 <button
-                                                    onClick={() => handleEdit(payment)}
+                                                    onClick={() => handleEdit(withdrawal)}
                                                     className="text-green-600 hover:text-green-900"
                                                 >
                                                     <FaEdit size={18} />
                                                 </button>
                                                 <button
-                                                    onClick={() => handleDelete(payment.id)}
+                                                    onClick={() => handleDelete(withdrawal.id)}
                                                     className="text-red-600 hover:text-red-900"
                                                 >
                                                     <FaTrash size={18} />

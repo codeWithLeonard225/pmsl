@@ -91,8 +91,9 @@ const Modal = ({ show, onClose, children }) => {
  */
 function Savings({ branch }) {
     // State for all form fields
-    // NEW: State for Branch ID
+    // NEW: State for Branch ID and its error
     const [branchId, setBranchId] = useState('');
+    const [branchIdError, setBranchIdError] = useState(null); // ADDED: Error state for branchId
 
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [clientId, setClientId] = useState('');
@@ -111,6 +112,7 @@ function Savings({ branch }) {
     const [saveSuccess, setSaveSuccess] = useState('');
     const [loadingSavings, setLoadingSavings] = useState(true);
     const [savingsFetchError, setSavingsFetchError] = useState('');
+    const [loading, setLoading] = useState(true); // ADDED: General loading state
 
     // State for client ID lookup
     const [isLoadingClient, setIsLoadingClient] = useState(false);
@@ -122,21 +124,38 @@ function Savings({ branch }) {
     const [deleteTargetId, setDeleteTargetId] = useState(null);
     const [deleteError, setDeleteError] = useState('');
 
-    // IMPORTANT: Define your ADMIN_PASSWORD here.
-    // In a real application, this should NOT be hardcoded in client-side code.
-    // It should be fetched securely from an environment variable or a backend service.
     const ADMIN_PASSWORD = "1234"; // ⚠️ Change this to a strong, actual password!
 
-    // NEW: useEffect to set the branchId state from the prop when the component mounts or the prop changes
+
+    // ----------------------------------------------------------------
+    // 1. USE EFFECT: Determine and set branchId from props or session storage
+    // ----------------------------------------------------------------
     useEffect(() => {
+        let id;
         if (branch && branch.branchId) {
-            setBranchId(branch.branchId);
+            id = branch.branchId;
+        } else {
+            // Fallback: Check sessionStorage for branchId
+            id = sessionStorage.getItem("branchId");
+        }
+
+        if (id) {
+            setBranchId(id);
+            setBranchIdError(null);
+        } else {
+            // Error handling if branchId cannot be determined
+            setBranchIdError("Branch ID could not be determined. Please ensure you are logged in or the branch prop is provided.");
+            setLoading(false); 
         }
     }, [branch]);
 
 
     // --- useEffect for fetching clientName when clientId changes ---
+    // (Existing logic remains here, just needs to be aware of branchIdError)
     useEffect(() => {
+        // Prevent lookup if branchId is missing or has an error
+        if (!branchId || branchIdError) return;
+        
         if (clientId && !editingSavingsId) {
             const fetchClientName = async () => {
                 setIsLoadingClient(true);
@@ -145,14 +164,19 @@ function Savings({ branch }) {
 
                 try {
                     const clientsCollectionRef = collection(db, "clients");
-                    const q = query(clientsCollectionRef, where("clientId", "==", clientId));
+                    // NEW: Filter by branchId AND clientId for security and correctness
+                    const q = query(
+                        clientsCollectionRef, 
+                        where("clientId", "==", clientId),
+                        where("branchId", "==", branchId) // ADDED branchId filter
+                    );
                     const querySnapshot = await getDocs(q);
 
                     if (!querySnapshot.empty) {
                         const clientData = querySnapshot.docs[0].data();
                         setClientName(clientData.fullName || 'N/A');
                     } else {
-                        setClientLookupError("Client ID not found.");
+                        setClientLookupError("Client ID not found for this branch."); // Improved error message
                         setClientName('');
                     }
                 } catch (error) {
@@ -170,12 +194,26 @@ function Savings({ branch }) {
             setClientName('');
             setClientLookupError('');
         }
-    }, [clientId, editingSavingsId]);
+    }, [clientId, editingSavingsId, branchId, branchIdError]); // ADDED branchId and branchIdError dependencies
 
-   // UseEffect to fetch savings data from Firestore in real-time
+
+    // ----------------------------------------------------------------
+    // 2. USE EFFECT: Fetch savings data from Firestore in real-time
+    // ----------------------------------------------------------------
     useEffect(() => {
+        // Run only if branchId is set and no critical error
+        if (!branchId || branchIdError) {
+            setLoadingSavings(false);
+            return;
+        }
+
         const savingsCollectionRef = collection(db, 'savings');
-        const q = query(savingsCollectionRef, orderBy('createdAt', 'desc'));
+        // MODIFIED: Filter by branchId AND order by createdAt
+        const q = query(
+            savingsCollectionRef, 
+            where('branchId', '==', branchId), // ADDED branchId filter
+            // orderBy('createdAt', 'desc')
+        );
 
         setLoadingSavings(true);
         setSavingsFetchError('');
@@ -183,20 +221,21 @@ function Savings({ branch }) {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedSavings = snapshot.docs.map(doc => {
                 const data = doc.data();
-                return {
-                    id: doc.id,
-                    ...data,
-                    date: data.date,
-                    // Check if createdAt exists and is a Timestamp before converting
-                    createdAt: data.createdAt && typeof data.createdAt.toDate === 'function' 
-                        ? data.createdAt.toDate().toISOString() 
-                        : null,
-                    // Check if updatedAt exists and is a Timestamp before converting
-                    updatedAt: data.updatedAt && typeof data.updatedAt.toDate === 'function' 
-                        ? data.updatedAt.toDate().toISOString() 
-                        : null
-                };
+               return {
+                        id: doc.id,
+                        ...data,
+                        date: data.date || '',
+                        createdAt:
+                            data.createdAt && typeof data.createdAt.toDate === 'function'
+                                ? data.createdAt.toDate().toISOString()
+                                : data.createdAt || null,
+                        updatedAt:
+                            data.updatedAt && typeof data.updatedAt.toDate === 'function'
+                                ? data.updatedAt.toDate().toISOString()
+                                : data.updatedAt || null,
+                    };
             });
+            // No need for client-side filtering if the query is correct
             setSavingsList(fetchedSavings);
             setLoadingSavings(false);
         }, (error) => {
@@ -206,16 +245,15 @@ function Savings({ branch }) {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [branchId, branchIdError]); // ADDED branchId and branchIdError dependencies
 
-  
+  
 
+    // MODIFIED: Simplified filteredSavings since the onSnapshot query handles branchId filtering
     const filteredSavings = savingsList.filter(savings =>
-    savings.branchId === branchId && (
-        savings.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        savings.clientId.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-);
+        (savings.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (savings.clientId || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     const clearForm = () => {
         setDate(new Date().toISOString().slice(0, 10));
@@ -231,6 +269,12 @@ function Savings({ branch }) {
 
     const handleSubmit = async (event) => {
         event.preventDefault();
+
+        // Check for Branch ID error before proceeding
+        if (branchIdError) {
+            setSaveError(branchIdError);
+            return;
+        }
 
         if (!clientId || !clientName || compulsoryAmount === '' || voluntarySavings === '') {
             setSaveError("Please fill in Client ID, Client Name, Compulsory Amount, and Voluntary Savings.");
@@ -260,7 +304,7 @@ function Savings({ branch }) {
             clientName,
             compulsoryAmount: compAmountNum,
             voluntarySavings: volSavingsNum,
-            branchId, // NEW: Include the branchId in the data
+            branchId, // Included branchId
             createdAt: editingSavingsId ? savingsList.find(s => s.id === editingSavingsId)?.createdAt : serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
@@ -338,6 +382,17 @@ function Savings({ branch }) {
         setDeleteError('');
     };
 
+    // If branchId has a critical error, display a message instead of the form
+    if (branchIdError) {
+        return (
+            <div className="container mx-auto p-6 text-center text-red-600 bg-red-100 border border-red-400 rounded-lg shadow-lg mt-10">
+                <h2 className="text-xl font-semibold mb-2">Configuration Error</h2>
+                <p>{branchIdError}</p>
+                <p className="mt-4">Please log in or contact support if the issue persists.</p>
+            </div>
+        );
+    }
+
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
@@ -345,8 +400,20 @@ function Savings({ branch }) {
                     {editingSavingsId ? 'Edit Savings Record' : 'Savings Form'}
                 </h1>
 
+                {/* Display Success or Error Messages */}
+                {saveError && (
+                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                        <span className="block sm:inline">{saveError}</span>
+                    </div>
+                )}
+                {saveSuccess && (
+                    <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                        <span className="block sm:inline">{saveSuccess}</span>
+                    </div>
+                )}
+
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* NEW: Branch ID Input Field */}
+                    {/* Branch ID Input Field (Read-Only) */}
                     <Input
                         id="branchId"
                         label="Branch ID"
@@ -354,7 +421,9 @@ function Savings({ branch }) {
                         value={branchId}
                         onChange={(e) => setBranchId(e.target.value)}
                         placeholder="e.g., B001"
-                        readOnly // Make this read-only so users can't change the assigned branch
+                        readOnly // Make this read-only
+                        disabled={isSaving}
+                        helpText="Automatically determined from login session."
                     />
                     <Input id="date" label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={isSaving} />
                     <Input
@@ -363,73 +432,76 @@ function Savings({ branch }) {
                         type="text"
                         value={clientId}
                         onChange={(e) => setClientId(e.target.value)}
-                        placeholder="e.g., cmcs-01"
-                        readOnly={editingSavingsId !== null}
-                        disabled={editingSavingsId !== null || isSaving}
+                        placeholder="e.g., C001"
+                        disabled={isSaving || editingSavingsId !== null} // Disable for editing
+                        helpText={isLoadingClient ? 'Searching for client...' : clientLookupError ? clientLookupError : 'Enter the client ID.'}
                         error={!!clientLookupError}
-                        helpText={isLoadingClient ? "Searching for client..." : clientLookupError}
                     />
+                    
                     <Input
                         id="clientName"
                         label="Client Name"
                         type="text"
                         value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        placeholder="Auto-populated from Client ID"
-                        readOnly={isLoadingClient || !clientId || editingSavingsId !== null}
-                        disabled={isLoadingClient || !clientId || editingSavingsId !== null || isSaving}
-                        helpText={clientName && !clientLookupError ? "Auto-populated" : ""}
+                        readOnly
+                        disabled
+                        placeholder="Auto-populated"
+                        className="col-span-1"
                     />
-                    <Input id="compulsoryAmount" label="Compulsory Amount" type="number" value={compulsoryAmount} onChange={(e) => setCompulsoryAmount(e.target.value)} placeholder="e.g., 50.00" disabled={isSaving} />
-                    <Input id="voluntarySavings" label="Voluntary Savings" type="number" value={voluntarySavings} onChange={(e) => setVoluntarySavings(e.target.value)} placeholder="e.g., 25.00" disabled={isSaving} />
+                    <Input
+                        id="compulsoryAmount"
+                        label="Compulsory Amount"
+                        type="number"
+                        value={compulsoryAmount}
+                        onChange={(e) => setCompulsoryAmount(e.target.value)}
+                        placeholder="0.00"
+                        disabled={isSaving}
+                    />
+                    <Input
+                        id="voluntarySavings"
+                        label="Voluntary Savings"
+                        type="number"
+                        value={voluntarySavings}
+                        onChange={(e) => setVoluntarySavings(e.target.value)}
+                        placeholder="0.00"
+                        disabled={isSaving}
+                    />
 
-                    {isSaving && <p className="col-span-full text-blue-500">Saving data...</p>}
-                    {saveError && <p className="col-span-full text-red-500">{saveError}</p>}
-                    {saveSuccess && <p className="col-span-full text-green-600">{saveSuccess}</p>}
-
-                    <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-6 flex gap-4">
-                        <Button
-                            type="submit"
-                            className="w-full py-3 font-bold text-lg shadow-md"
-                            disabled={isSaving || (!editingSavingsId && (isLoadingClient || clientLookupError || !clientName))}
-                        >
-                            {isSaving ? 'Saving...' : (editingSavingsId ? 'Update Savings' : 'Save Savings')}
+                    <div className="flex space-x-4 col-span-full pt-4">
+                        <Button type="submit" disabled={isSaving || !!branchIdError}>
+                            {isSaving ? (editingSavingsId ? 'Updating...' : 'Saving...') : (editingSavingsId ? 'Update Savings' : 'Save New Savings')}
                         </Button>
-                        {editingSavingsId && (
-                            <Button
-                                type="button"
-                                onClick={clearForm}
-                                className="w-full py-3 mt-2 bg-gray-500 hover:bg-gray-600 text-white font-bold text-lg shadow-md"
-                                disabled={isSaving}
-                            >
-                                Cancel Edit
-                            </Button>
-                        )}
+                        <Button type="button" onClick={clearForm} className="bg-gray-500 hover:bg-gray-600">
+                            Cancel
+                        </Button>
                     </div>
                 </form>
             </div>
 
-            {/* Savings List Table */}
-            {loadingSavings ? (
-                <p className="text-center text-gray-600">Loading savings records...</p>
-            ) : savingsFetchError ? (
-                <p className="text-center text-red-500">{savingsFetchError}</p>
-            ) : savingsList.length > 0 && (
-                <div className="bg-white rounded-xl shadow-lg p-8">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Savings Records</h2>
-                    <div className="flex flex-col md:flex-row justify-between items-center mb-4 space-y-4 md:space-y-0">
-                        <Input
-                            id="search"
-                            label="Search by Client Name or ID"
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Enter Client Name or ID"
-                        />
-                        <div className="text-sm font-medium text-gray-600">
-                            Showing {filteredSavings.length} of {savingsList.length} records
-                        </div>
-                    </div>
+            {/* Savings List */}
+            <div className="bg-white rounded-xl shadow-lg p-8">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">
+                    Savings Records ({filteredSavings.length})
+                </h2>
+                
+                {/* Search Bar */}
+                <Input
+                    id="search"
+                    label="Search by Client Name or ID"
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search records..."
+                    className="mb-4"
+                />
+
+                {loadingSavings ? (
+                    <p className="text-center text-gray-500">Loading savings data...</p>
+                ) : savingsFetchError ? (
+                    <p className="text-center text-red-500">{savingsFetchError}</p>
+                ) : filteredSavings.length === 0 ? (
+                    <p className="text-center text-gray-500">No savings records found for this branch.</p>
+                ) : (
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
@@ -437,52 +509,55 @@ function Savings({ branch }) {
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client ID</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client Name</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comp. Amount</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vol. Savings</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Compulsory</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Voluntary</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {filteredSavings.map((savings) => (
-                                    <tr key={savings.id}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{savings.date}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{savings.clientId}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{savings.clientName}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${savings.compulsoryAmount?.toFixed(2)}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${savings.voluntarySavings?.toFixed(2)}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <div className="flex items-center space-x-2">
-                                                <button
-                                                    onClick={() => handleEdit(savings)}
-                                                    className="text-green-600 hover:text-green-900"
-                                                >
-                                                    <FaEdit size={18} />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(savings.id)}
-                                                    className="text-red-600 hover:text-red-900"
-                                                >
-                                                    <FaTrash size={18} />
-                                                </button>
-                                            </div>
+                                    <tr key={savings.id} className={editingSavingsId === savings.id ? 'bg-purple-50' : ''}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{savings.date}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{savings.clientId}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{savings.clientName}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(savings.compulsoryAmount || 0).toFixed(2)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(savings.voluntarySavings || 0).toFixed(2)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                                            <button
+                                                onClick={() => handleEdit(savings)}
+                                                className="text-purple-600 hover:text-purple-900 disabled:opacity-50"
+                                                title="Edit"
+                                                disabled={isSaving}
+                                            >
+                                                <FaEdit />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(savings.id)}
+                                                className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                                                title="Delete"
+                                                disabled={isSaving}
+                                            >
+                                                <FaTrash />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
             {/* Delete Confirmation Modal */}
             <Modal show={showDeleteConfirm} onClose={cancelDelete}>
-                <h3 className="text-xl font-semibold mb-4 text-gray-800">Confirm Deletion ⚠️</h3>
-                <p className="text-gray-700 mb-4">
-                    To delete this record, please enter the administrator password.
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">Confirm Deletion</h3>
+                <p className="mb-4 text-gray-600">
+                    Are you sure you want to delete this savings record? This action cannot be undone.
+                    Please enter the administrator password to confirm.
                 </p>
                 <Input
                     id="deletePassword"
-                    label="Administrator Password"
+                    label="Admin Password"
                     type="password"
                     value={deletePassword}
                     onChange={(e) => setDeletePassword(e.target.value)}
@@ -491,18 +566,10 @@ function Savings({ branch }) {
                     helpText={deleteError}
                 />
                 <div className="flex justify-end space-x-3 mt-6">
-                    <Button
-                        onClick={cancelDelete}
-                        className="bg-gray-400 hover:bg-gray-500 text-white"
-                        disabled={isSaving}
-                    >
+                    <Button onClick={cancelDelete} className="bg-gray-500 hover:bg-gray-600">
                         Cancel
                     </Button>
-                    <Button
-                        onClick={confirmDelete}
-                        className="bg-red-600 hover:bg-red-700 text-white"
-                        disabled={isSaving}
-                    >
+                    <Button onClick={confirmDelete} className="bg-red-600 hover:bg-red-700" disabled={isSaving}>
                         {isSaving ? 'Deleting...' : 'Delete'}
                     </Button>
                 </div>
@@ -511,4 +578,4 @@ function Savings({ branch }) {
     );
 }
 
-export default Savings;
+export default Savings; // Add this line if you need to export the component

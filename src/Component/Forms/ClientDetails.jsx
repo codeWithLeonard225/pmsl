@@ -14,7 +14,7 @@ import {
     deleteDoc,
     onSnapshot,
     query,
-    orderBy,
+    // orderBy, // Not needed in the final query, but good to keep in mind
     where
 } from 'firebase/firestore';
 
@@ -91,25 +91,10 @@ function ClientDetails({ branch }) { // Add branch to props
     const [maritalStatus, setMaritalStatus] = useState('');
     const [telephone, setTelephone] = useState('');
     const [address, setAddress] = useState('');
-
-      const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
     // NEW: State for Branch ID
     const [branchId, setBranchId] = useState('');
-
+    const [error, setError] = useState(null); // New state for branch ID error
 
     // State for photo URL from Cloudinary and a ref for the hidden file input
     const [photoUrl, setPhotoUrl] = useState('');
@@ -136,64 +121,96 @@ function ClientDetails({ branch }) { // Add branch to props
     const [staffLoading, setStaffLoading] = useState(true);
 
     // Define the PIN for delete confirmation.
-    // WARNING: For a production application, do NOT hardcode sensitive passwords/PINs like this
-    // directly in client-side code. This should be handled securely on a backend (e.g., Firebase Cloud Functions).
-    const DELETE_PIN = "1234"; // Example PIN
+    const DELETE_PIN = "1234"; 
 
     // Reference to the Firestore 'clients' collection
     const clientsCollectionRef = collection(db, "clients");
     // Reference to the Firestore 'staffMembers' collection
     const staffMembersCollectionRef = collection(db, "staffMembers");
 
-    // NEW: useEffect to set the branchId state from the prop when the component mounts or the prop changes
     useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, []);
+
+    // 1. **CRITICAL FIX**: Determine and set the Branch ID first.
+    useEffect(() => {
+        let id;
         if (branch && branch.branchId) {
-            setBranchId(branch.branchId);
+            id = branch.branchId;
+        } else {
+            // Fallback: Check sessionStorage for branchId
+            id = sessionStorage.getItem("branchId");
+        }
+
+        if (id) {
+            setBranchId(id);
+            setError(null);
+        } else {
+            // This is the source of the problem if the component is used without a branch prop/session storage
+            setError("Branch ID could not be determined. Please ensure you are logged in or the branch prop is provided.");
+            setLoading(false); // Stop loading if we can't get the branch ID
+            setStaffLoading(false);
         }
     }, [branch]);
 
-   // useEffect hook for the real-time Firestore listener for clients.
-useEffect(() => {
-    setLoading(true); // Start loading before fetching
-    const q = query(clientsCollectionRef);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const fetchedClients = snapshot.docs.map((doc) => ({
-            ...doc.data(),
-            id: doc.id // Store the Firestore document ID for update/delete operations
-        }));
-        console.log("Real-time Client Data Fetched:", fetchedClients);
-        setClientList(fetchedClients);
-        setLoading(false); // Data loaded, set loading to false
-
-        // Corrected Logic: Move the ID generation code out of the nested useEffect
-        // and place it directly inside the onSnapshot callback.
-        if (!editingClientId) {
-            const branchClients = fetchedClients.filter(client => client.branchId === branchId);
-
-            const latestClientNumber = branchClients.reduce((max, client) => {
-                const numMatch = (client.clientId || "pmcd-00").match(/^pmcd-(\d+)$/i);
-                const num = numMatch ? parseInt(numMatch[1], 10) : 0;
-                return num > max ? num : max;
-            }, 0);
-
-            const newNumber = latestClientNumber + 1;
-            const formattedId = `pmcd-${String(newNumber).padStart(2, '0')}`;
-            setClientId(formattedId);
+    // 2. **CRITICAL FIX**: Fetch clients filtered by the determined branchId.
+    useEffect(() => {
+        if (!branchId) {
+            setLoading(false);
+            return; // Exit if branchId is not yet set
         }
 
-    }, (error) => {
-        console.error("Error fetching real-time client data:", error);
-        alert("Failed to load client data in real-time. Please check your internet connection and Firebase rules.");
-        setLoading(false); // Also set loading to false on error
-    });
+        setLoading(true);
 
-    // Cleanup function: This is called when the component unmounts to prevent memory leaks
-    return () => unsubscribe();
-}, [editingClientId, branchId]); // Add branchId as a dependency to ensure correct filtering.
+        // **FIXED QUERY**: Use where to filter the Firestore collection by branchId.
+        const clientsQuery = query(
+            clientsCollectionRef,
+            where('branchId', '==', branchId) 
+        );
 
-    // NEW: useEffect hook for fetching staff members
-    // MODIFIED: useEffect hook for fetching staff members based on branchId
+        const unsubscribe = onSnapshot(clientsQuery, (snapshot) => {
+            const fetchedClients = snapshot.docs.map((doc) => ({
+                ...doc.data(),
+                id: doc.id
+            }));
+            
+            setClientList(fetchedClients);
+            setLoading(false);
+
+            // Logic to auto-generate a new client ID for the *current* branch
+            if (!editingClientId) {
+                // Since the query already filtered by branchId, all clients here are for the current branch.
+                const latestClientNumber = fetchedClients.reduce((max, client) => {
+                    const numMatch = (client.clientId || "pmcd-00").match(/^pmcd-(\d+)$/i);
+                    const num = numMatch ? parseInt(numMatch[1], 10) : 0;
+                    return num > max ? num : max;
+                }, 0);
+
+                const newNumber = latestClientNumber + 1;
+                const formattedId = `pmcd-${String(newNumber).padStart(2, '0')}`;
+                setClientId(formattedId);
+            }
+
+        }, (error) => {
+            console.error("Error fetching real-time client data:", error);
+            setError("Failed to load client data in real-time. Please check your internet connection.");
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [branchId, editingClientId]); // Dependent on branchId and editingClientId
+
+    // 3. Fetch staff members filtered by branchId (already correct)
     useEffect(() => {
         if (!branchId) return; // Exit if branchId is not yet set
         setStaffLoading(true);
@@ -209,24 +226,22 @@ useEffect(() => {
                 fullName: doc.data().fullName
             }));
 
-            // Sort the fetched staff members client-side
             const sortedStaff = [...fetchedStaff].sort((a, b) => a.fullName.localeCompare(b.fullName));
 
             setStaffMembers(sortedStaff);
             setStaffLoading(false);
         }, (error) => {
             console.error("Error fetching staff for branch:", error);
-            alert("Failed to load staff data for this branch.");
+            setError("Failed to load staff data for this branch.");
             setStaffLoading(false);
         });
 
         return () => unsubscribe(); // Clean up on unmount or branchId change
     }, [branchId]); // Run whenever branchId changes
 
-    // Derived state: Filtered client list based on the search term
-    // Derived state: Filtered client list based on the search term AND branchId
+    // Derived state: Filtered client list based on the search term (clientList is now already filtered by branchId)
     const filteredClients = clientList.filter(client =>
-        client.branchId === branchId && // Only show clients from this branch
+        // Removed: client.branchId === branchId && // This is now redundant and harmless, but the Firestore query handles it faster
         ((client.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
             (client.clientId || "").toLowerCase().includes(searchTerm.toLowerCase()))
     );
@@ -250,6 +265,8 @@ useEffect(() => {
     }, [dateOfBirth]);
 
 
+    // ... (Your handlePhotoImport, handleImportButtonClick, clearForm functions remain the same)
+    
     // Handle photo file selection and Cloudinary upload using fetch API
     const handlePhotoImport = async (event) => {
         const file = event.target.files[0];
@@ -278,10 +295,6 @@ useEffect(() => {
                 console.log('Cloudinary upload success:', data);
                 setPhotoUrl(data.secure_url); // Set the state with the Cloudinary URL
                 alert("Photo uploaded successfully! 📸");
-                // It's a good practice to revoke the object URL when it's no longer needed,
-                // but if you want to keep the preview until form submission, you might delay this.
-                // For simplicity here, we'll keep it as is, but be mindful of memory usage for many previews.
-                // URL.revokeObjectURL(imagePreviewUrl); // Clean up local URL after successful upload
             } catch (error) {
                 console.error("Error uploading image to Cloudinary:", error);
                 alert(`Failed to upload image. Please try again. Details: ${error.message || error}`);
@@ -315,9 +328,7 @@ useEffect(() => {
         setEditingClientId(null); // Clear editing state
         setRegistrationDate(new Date().toISOString().slice(0, 10)); // Reset registration date to current day
         setStaffName(''); // Clear staff name for new entry
-        // Do NOT clear branchId here to keep the pre-filled value
-        // setBranchId('');
-        // The useEffect for clientId will automatically generate a new ID
+        // The useEffect for clientId will automatically generate a new ID based on the current branch
     };
 
     // Handle form submission (add new client or update existing client)
@@ -326,8 +337,8 @@ useEffect(() => {
         setIsSaving(true); // Set saving state to true
 
         // Basic client-side validation for required fields
-        if (!fullName  || !staffName || !branchId) {
-            alert("Please fill in all required fields and upload a photo.");
+        if (!fullName || !staffName || !branchId) {
+            alert("Please fill in all required fields.");
             setIsSaving(false);
             return;
         }
@@ -346,7 +357,7 @@ useEffect(() => {
             maritalStatus,
             telephone,
             address,
-            // photoUrl, // Cloudinary URL
+            photoUrl, // Cloudinary URL
             createdAt: editingClientId ? clientList.find(c => c.id === editingClientId)?.createdAt : new Date().toISOString(), // Preserve original creation date if editing
             updatedAt: new Date().toISOString(), // Update timestamp on every save
         };
@@ -441,11 +452,19 @@ useEffect(() => {
                         {isOnline ? "✅ Online" : "⚠️ Offline"}
                     </span>
                 </div>
+                
+                {/* Branch ID Error Message */}
+                {error && (
+                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                        <strong className="font-bold">Error:</strong>
+                        <span className="block sm:inline"> {error}</span>
+                    </div>
+                )}
 
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Registration Date (Read-only) */}
-                    <Input id="registrationDate" label="Registration Date" type="date" value={registrationDate} onChange={(e) => setRegistrationDate(e.target.value)}  icon={FaCalendarAlt} />
+                    <Input id="registrationDate" label="Registration Date" type="date" value={registrationDate} onChange={(e) => setRegistrationDate(e.target.value)} icon={FaCalendarAlt} />
 
                     {/* Client ID (Read-only display, now showing sequential ID) */}
                     <div className="flex flex-col space-y-1">
@@ -489,11 +508,12 @@ useEffect(() => {
                                     value={staffName}
                                     onChange={(e) => setStaffName(e.target.value)}
                                     className="w-full p-2 pl-10 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors duration-200"
+                                    disabled={staffMembers.length === 0}
                                 >
-                                    <option value="">Select Staff Member</option> {/* Default empty option */}
+                                    <option value="">{staffMembers.length === 0 ? "No staff found for this branch" : "Select Staff Member"}</option> 
                                     {staffMembers.map((staff) => ( // Map through fetched staff members to create options
-                                        <option key={staff.id} value={staff.fullName}> {/* Corrected: Use staff.fullName */}
-                                            {staff.fullName} {/* Corrected: Display staff.fullName */}
+                                        <option key={staff.id} value={staff.fullName}> 
+                                            {staff.fullName}
                                         </option>
                                     ))}
                                 </select>
@@ -554,7 +574,7 @@ useEffect(() => {
                     <Input id="telephone" label="Telephone" type="tel" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="+232-XXXXXXXX" icon={FaPhone} />
                     <Input id="address" label="Address" type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Freetown" icon={FaHome} />
 
-                    {/* Photo Section */}
+                    {/* Photo Section (Keep this commented out if you're not using it) */}
                     {/* <div className="col-span-1 md:col-span-2 lg:col-span-3 flex flex-col items-center justify-center space-y-4 pt-4 border-t border-gray-200 mt-4">
                         <h3 className="text-lg font-semibold text-gray-800">Client Photo</h3>
                         <div className="w-32 h-32 rounded-full border-4 border-gray-300 flex items-center justify-center overflow-hidden bg-gray-200 relative">
@@ -584,9 +604,9 @@ useEffect(() => {
                     <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-6">
                         <button
                             type="submit"
-                            disabled={isSaving || imageUploading || staffLoading} // Disable while saving, uploading image, or staff is loading
+                            disabled={isSaving || imageUploading || staffLoading || !branchId} // Disable if branchId is missing
                             className={`w-full py-3 rounded-md font-bold text-lg transition-colors duration-200 shadow-md
-                                ${isSaving || imageUploading || staffLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                ${isSaving || imageUploading || staffLoading || !branchId ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                         >
                             {isSaving ? 'Saving...' : (editingClientId ? 'Update Client Details' : 'Save Client Details')}
                         </button>
@@ -596,11 +616,11 @@ useEffect(() => {
 
             {/* Client List Table Section */}
             <div className="bg-white rounded-xl shadow-lg p-8">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">Registered Clients</h2>
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Registered Clients (Branch: {branchId || 'N/A'})</h2>
 
                 {loading ? (
                     <Spinner />
-                ) : clientList.length > 0 ? (
+                ) : clientList.length > 0 || searchTerm ? (
                     <>
                         <div className="flex justify-between items-center mb-4">
                             <Input
@@ -613,44 +633,36 @@ useEffect(() => {
                                 className="w-1/2"
                             />
                             <div className="text-sm font-medium text-gray-600">
-                                Showing {filteredClients.length} of {clientList.length} clients
+                                Showing **{filteredClients.length}** clients.
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto shadow-md rounded-lg">
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client ID</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Full Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch ID</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">StaffNAme</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[120px]">Client ID</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">Full Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[100px]">Branch ID</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[100px]">Gender</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]">Staff Name</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {filteredClients.map((client) => (
-                                        <tr key={client.id}>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{client.clientId}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.fullName}</td>
+                                        <tr key={client.id} className="hover:bg-indigo-50">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-indigo-600">{client.clientId}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{client.fullName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.branchId}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.gender}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.staffName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                <div className="flex items-center space-x-2">
-                                                    <button
-                                                        onClick={() => handleEdit(client)}
-                                                        className="text-indigo-600 hover:text-indigo-900"
-                                                    >
-                                                        <FaPencilAlt size={18} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDelete(client.id)}
-                                                        className="text-red-600 hover:text-red-900"
-                                                    >
-                                                        <FaTrashAlt size={18} />
-                                                    </button>
-                                                </div>
+                                                <Button onClick={() => handleEdit(client)} className="bg-green-600 hover:bg-green-700 mr-2">
+                                                    <FaPencilAlt size={14} className="mr-1" /> Edit
+                                                </Button>
+                                                <Button onClick={() => handleDelete(client.id)} className="bg-red-600 hover:bg-red-700">
+                                                    <FaTrashAlt size={14} className="mr-1" /> Delete
+                                                </Button>
                                             </td>
                                         </tr>
                                     ))}
@@ -659,7 +671,9 @@ useEffect(() => {
                         </div>
                     </>
                 ) : (
-                    <div>No clients found.</div>
+                    <div className="text-center py-8 text-gray-500">
+                        No clients registered yet for this branch ({branchId || 'N/A'}).
+                    </div>
                 )}
             </div>
         </div>

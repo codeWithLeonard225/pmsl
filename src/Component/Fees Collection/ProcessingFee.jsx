@@ -16,6 +16,7 @@ const printStyles = `
 
 function FieldCollectionSheet({ branch }) {
     const [branchId, setBranchId] = useState('');
+     const [branchIdError, setBranchIdError] = useState(null);
     const printAreaRef = useRef(null);
     const [payments, setPayments] = useState([]);
     const [savings, setSavings] = useState([]);
@@ -24,12 +25,25 @@ function FieldCollectionSheet({ branch }) {
     const [error, setError] = useState(null);
     const [selectedStaff, setSelectedStaff] = useState('');
     const [selectedGroup, setSelectedGroup] = useState('');
-
+    const [loading, setLoading] = useState(true); // ADDED: General loading state
     const [clientDates, setClientDates] = useState({});
 
     useEffect(() => {
+        let id;
         if (branch && branch.branchId) {
-            setBranchId(branch.branchId);
+            id = branch.branchId;
+        } else {
+            // Fallback: Check sessionStorage for branchId
+            id = sessionStorage.getItem("branchId");
+        }
+
+        if (id) {
+            setBranchId(id);
+            setBranchIdError(null);
+        } else {
+            // Error handling if branchId cannot be determined
+            setBranchIdError("Branch ID could not be determined. Please ensure you are logged in or the branch prop is provided.");
+            setLoading(false); 
         }
     }, [branch]);
 
@@ -343,7 +357,7 @@ function FieldCollectionSheet({ branch }) {
                                         const { expectedPayment, overdueAmount, months } = calculateClientMetrics(client, calculationDate);
 
                                         return (
-                                            <tr key={client.clientId}>
+                                            <tr key={client.loanId}>
                                                 <td className="border p-2">{client.clientId}</td>
                                                 <td className="border p-2">{client.fullName}</td>
                                                 <td className="border p-2">SLE {(client.compSvgBal || 0).toFixed(2)}</td>
