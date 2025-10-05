@@ -10,7 +10,7 @@ import {
 } from "react-icons/md";
 
 // Assuming these components exist in the same directory structure
-import StaffPage from "./staffpage"; 
+import StaffPage from "./Staffpage"; 
 import StaffDashboard from "./StaffDashboard"; 
 
 // --- Navigation Items (FLAT Structure) ---
