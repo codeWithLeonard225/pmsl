@@ -1,27 +1,25 @@
 // AdminPanel.jsx
 import React, { useState, useEffect } from "react";
-// Don't need useLocation anymore
-// import { useLocation } from "react-router-dom"; 
-// --- Import react-icons ---
 import {
-  MdDashboard, // For LayoutDashboard
-  MdBook, // For BookOpenText
-  MdPeople, // For Users
-  MdAssignment, // For ClipboardList
-  MdEdit, // For FileEdit
-  MdKeyboardArrowDown, // For ChevronDown
-  MdPerson, // For User
-  MdAttachMoney, // For DollarSign
-  MdAssignmentTurnedIn, //For ClipboardCheck
-  MdBarChart, // For BarChart2
-  MdFormatListBulleted, // For List
-  MdDescription, // For FileText
-  MdTrendingUp, // For TrendingUp
-  MdWarning, // For AlertTriangle
-  MdCheckCircle, // For CheckCircle
-  MdRemoveCircle, // For MinusCircle
-} from "react-icons/md"; // Using Material Design icons for consistency
+  MdDashboard,
+  MdBook,
+  MdPeople,
+  MdAssignment,
+  MdEdit,
+  MdKeyboardArrowDown,
+  MdPerson,
+  MdAttachMoney,
+  MdAssignmentTurnedIn,
+  MdBarChart,
+  MdFormatListBulleted,
+  MdDescription,
+  MdTrendingUp,
+  MdWarning,
+  MdCheckCircle,
+  MdRemoveCircle,
+} from "react-icons/md";
 
+// --- Import your components ---
 import StaffForm from "../Forms/StaffDetails";
 import ClientDetails from "../Forms/ClientDetails";
 import Loan from "../Principal/Loan";
@@ -39,7 +37,7 @@ import ProcessingFee from "../Fees Collection/ProcessingFee";
 import GroupReportTransactionGPT from "../Reports/Portfolio Transaction/GroupReportTransactionGPT";
 import ClientReport from "../Reports/ClientsReport/ClientReport";
 
-// --- Navigation Items Configuration (Defined First) ---
+// --- NAV ITEMS ---
 const NAV_ITEMS = [
   {
     key: "forms",
@@ -83,256 +81,119 @@ const NAV_ITEMS = [
     label: "Reports",
     icon: <MdBarChart />,
     children: [
-      { key: "PortfolioTransactoin", label: "Portfolio Transactoin", icon: <MdDescription />,
-        children: [ // First level of nested children
+      {
+        key: "PortfolioTransactoin",
+        label: "Portfolio Transactoin",
+        icon: <MdDescription />,
+        children: [
           { key: "generalportfolio", label: "General Portfolio", icon: <MdBarChart /> },
           { key: "staffportfolio", label: "Staff Portfolio", icon: <MdFormatListBulleted /> },
           { key: "groupReportTransactionGPT", label: "GroupReport", icon: <MdFormatListBulleted /> },
-        ]
+        ],
       },
-      { key: "loanReports", label: "Loan Reports", icon: <MdAssignment />,
-        children: [ // First level of nested children
+      {
+        key: "loanReports",
+        label: "Loan Reports",
+        icon: <MdAssignment />,
+        children: [
           { key: "overdueLoans", label: "Overdue Loans", icon: <MdWarning /> },
           { key: "disbursedLoans", label: "Disbursed Loans", icon: <MdCheckCircle /> },
           { key: "outstandingBalances", label: "Outstanding Balances", icon: <MdRemoveCircle /> },
           { key: "fullypaid", label: "Fully Paid", icon: <MdRemoveCircle /> },
           { key: "paymentdetails", label: "Payment Details", icon: <MdRemoveCircle /> },
-        ]
+        ],
       },
-      
-      { key: "systemReports", label: "System Reports", icon: <MdBarChart />,
-        children: [ // First level of nested children
+      {
+        key: "systemReports",
+        label: "System Reports",
+        icon: <MdBarChart />,
+        children: [
           { key: "transactionReports", label: "Transaction Logs", icon: <MdAssignment /> },
           { key: "auditLogs", label: "Audit Logs", icon: <MdBook /> },
-        ]
+        ],
       },
     ],
   },
 ];
 
-// --- Helper Functions (Defined after NAV_ITEMS) ---
+// --- Helper function ---
 const findPath = (items, targetKey, currentPath = []) => {
   for (const item of items) {
     const newPath = [...currentPath, item.key];
-    if (item.key === targetKey) {
-      return newPath;
-    }
+    if (item.key === targetKey) return newPath;
     if (item.children) {
       const result = findPath(item.children, targetKey, newPath);
-      if (result) {
-        return result;
-      }
+      if (result) return result;
     }
   }
   return null;
 };
 
-// A reusable Button component
+// --- Button component ---
 const Button = ({ variant = "default", onClick, className = "", children }) => {
   let baseStyles =
     "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-950 disabled:pointer-events-none disabled:opacity-50";
-  let variantStyles = "";
-
-  switch (variant) {
-    case "default":
-      variantStyles = "bg-indigo-600 text-white shadow hover:bg-indigo-700";
-      break;
-    case "ghost":
-      variantStyles = "hover:bg-indigo-100 hover:text-indigo-700 text-gray-700";
-      break;
-    default:
-      variantStyles = "bg-indigo-600 text-white shadow hover:bg-indigo-700";
-      break;
-  }
+  let variantStyles =
+    variant === "default"
+      ? "bg-indigo-600 text-white shadow hover:bg-indigo-700"
+      : "hover:bg-indigo-100 hover:text-indigo-700 text-gray-700";
 
   return (
-    <button
-      onClick={onClick}
-      className={`${baseStyles} ${variantStyles} ${className} h-9 px-4 py-2`}
-    >
+    <button onClick={onClick} className={`${baseStyles} ${variantStyles} ${className} h-9 px-4 py-2`}>
       {children}
     </button>
   );
 };
 
-// --- Placeholder Components --
-
-const PerformanceMetrics = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Performance Metrics</h2>
-        <p className="mt-2 text-gray-600">Analysis of loan and savings performance.</p>
-    </div>
-);
-const LoanAnalytics = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Loan Analytics</h2>
-        <p className="mt-2 text-gray-600">Specific analytics related to loans.</p>
-    </div>
-);
-const SavingsAnalytics = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Savings Analytics</h2>
-        <p className="mt-2 text-gray-600">Specific analytics related to savings.</p>
-    </div>
-);
-
-const ClientReports = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Client Specific Reports</h2>
-        <p className="mt-2 text-gray-600">Reports tailored to individual clients.</p>
-    </div>
-);
-const TransactionReports = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Transaction Reports</h2>
-        <p className="mt-2 text-gray-600">Detailed log of all financial transactions.</p>
-    </div>
-);
-const AuditLogs = () => (
-    <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">Audit Logs</h2>
-        <p className="mt-2 text-gray-600">Records of system activities and changes.</p>
-    </div>
-);
-
-// --- The updated Dashboard component ---
+// --- Dashboard placeholder ---
 const Dashboard = ({ branch }) => {
   const branchName = branch?.branchName || "your Branch Dashboard";
   const branchId = branch?.branchId || "N/A";
-  const branchLocation = branch?.branchLocation || "N/A"; // Use branch.location based on your table example
+  const branchLocation = branch?.branchLocation || "N/A";
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-semibold text-gray-800">
-            Welcome to {branchName}!
-        </h2>
-        <p className="mt-2 text-gray-600">
-            **Branch ID:** {branchId}
-        </p>
-        <p className="mt-2 text-gray-600">
-            **Location:** {branchLocation}
-        </p>
-        <p className="mt-2 text-gray-600">
-            Select an item from the sidebar to get started.
-        </p>
+      <h2 className="text-2xl font-semibold text-gray-800">Welcome to {branchName}!</h2>
+      <p className="mt-2 text-gray-600">Branch ID: {branchId}</p>
+      <p className="mt-2 text-gray-600">Location: {branchLocation}</p>
+      <p className="mt-2 text-gray-600">Select an item from the sidebar to get started.</p>
     </div>
   );
 };
 
-
-/**
- * The main Admin Panel component.
- * It manages the state for the active tab and the open dropdown.
- */
+// --- MAIN ADMIN PANEL ---
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [openDropdown, setOpenDropdown] = useState(null);
   const [openNestedDropdowns, setOpenNestedDropdowns] = useState({});
-  const [branch, setBranch] = useState(null); // Add state for branch data
+  const [branch, setBranch] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // <-- Added toggle state
 
-  // New useEffect hook to load branch data from sessionStorage on component mount
+  // Load branch info
   useEffect(() => {
     try {
-      const storedBranchData = sessionStorage.getItem('branchData');
-      if (storedBranchData) {
-        setBranch(JSON.parse(storedBranchData));
-      }
+      const stored = sessionStorage.getItem("branchData");
+      if (stored) setBranch(JSON.parse(stored));
     } catch (e) {
-      console.error("Failed to parse branch data from session storage", e);
+      console.error("Failed to parse branch data", e);
     }
-  }, []); // Empty dependency array ensures this runs only once
-
-  const dashboardBgColor = branch?.bgColor || "bg-gray-100";
-  const branchName = branch?.branchName || "Admin Panel Dashboard";
+  }, []);
 
   const toggleNestedDropdown = (key) => {
-    setOpenNestedDropdowns(prevState => {
-      const newState = { ...prevState };
-      if (newState[key]) {
-        delete newState[key];
-      } else {
-        newState[key] = true;
-      }
-      return newState;
-    });
+    setOpenNestedDropdowns((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const renderContent = () => {
-    // Pass the branch object to components that need it for filtering
-    const propsWithBranch = { branch };
-
-    switch (activeTab) {
-      case "staffForm": return <StaffForm {...propsWithBranch} />;
-      case "clientForm": return <ClientDetails {...propsWithBranch} />;
-      case "loan": return <Loan {...propsWithBranch} />;
-      case "groups": return <div>Groups Management Component</div>;
-      case "repaymentSchedule": return <Payments {...propsWithBranch} />;
-      case "savings": return <Savings {...propsWithBranch} />;
-      case "withdrawal": return <Withdrawal {...propsWithBranch} />;
-      case "processingFees": return <ProcessingFee {...propsWithBranch} />;
-      case "otherFees": return <div>Other Fees Component</div>;
-      case "generalportfolio": return <GeneralReportTransactionGPT {...propsWithBranch} />;
-      case "staffportfolio": return <StaffReportTransactionGPT {...propsWithBranch} />;
-      case "groupReportTransactionGPT": return <GroupReportTransactionGPT {...propsWithBranch} />;
-      case "performanceMetrics": return <PerformanceMetrics />;
-      case "loanAnalytics": return <LoanAnalytics />;
-      case "savingsAnalytics": return <SavingsAnalytics />;
-      case "overdueLoans": return <OverdueLoans {...propsWithBranch} />;
-      case "disbursedLoans": return <DisbursedLoans {...propsWithBranch} />;
-      case "outstandingBalances": return <OutstandingBalances {...propsWithBranch} />;
-      case "fullypaid": return <FullPaid {...propsWithBranch} />;
-      case "paymentdetails": return <PaymentDetails {...propsWithBranch} />;
-      
-      case "transactionReports": return <div>Transaction Reports Component</div>;
-      case "auditLogs": return <div>Audit Logs Component</div>;
-      case "dashboard": return <ClientReport branch={branch} />;
-      default: return <Dashboard branch={branch} />;
-    }
-  };
-
-  const getHeaderLabel = () => {
-    const findLabel = (items, currentKey) => {
-      for (const item of items) {
-        if (item.key === currentKey) {
-          return item.label;
-        }
-        if (item.children) {
-          const childLabel = findLabel(item.children, currentKey);
-          if (childLabel) return childLabel;
-        }
-      }
-      return null;
-    };
-
-    const label = findLabel(NAV_ITEMS, activeTab);
-    return label || branchName;
-  };
-  
-  const renderNavItems = (items, level = 0, parentKey = null) => {
-    // ... (rest of the renderNavItems function remains the same)
-    return items.map((item) => (
-      <div key={item.key} className={level > 0 ? `pl-${level * 4} pt-1` : ''}>
+  const renderNavItems = (items, level = 0) =>
+    items.map((item) => (
+      <div key={item.key} className={level > 0 ? `pl-${level * 4} pt-1` : ""}>
         {item.children ? (
           <>
             <Button
               variant={openNestedDropdowns[item.key] ? "default" : "ghost"}
-              onClick={() => {
-                if (level === 0) {
-                    setOpenDropdown(openDropdown === item.key ? null : item.key);
-                    setOpenNestedDropdowns(prevState => {
-                        const newState = {};
-                        if (prevState[item.key]) {
-                            return {};
-                        } else {
-                            newState[item.key] = true;
-                            return newState;
-                        }
-                    });
-                } else {
-                    toggleNestedDropdown(item.key, parentKey);
-                }
-              }}
-              className={`w-full justify-start flex items-center gap-2 py-2 ${level === 0 ? 'text-base' : 'text-sm'}`}
+              onClick={() => toggleNestedDropdown(item.key)}
+              className={`w-full justify-start flex items-center gap-2 py-2 ${
+                level === 0 ? "text-base" : "text-sm"
+              }`}
             >
               {item.icon} {item.label}
               <MdKeyboardArrowDown
@@ -343,9 +204,7 @@ function AdminPanel() {
               />
             </Button>
             {openNestedDropdowns[item.key] && (
-              <div className="space-y-1">
-                {renderNavItems(item.children, level + 1, item.key)}
-              </div>
+              <div className="space-y-1">{renderNavItems(item.children, level + 1)}</div>
             )}
           </>
         ) : (
@@ -353,42 +212,57 @@ function AdminPanel() {
             variant={activeTab === item.key ? "default" : "ghost"}
             onClick={() => {
               setActiveTab(item.key);
-              const path = findPath(NAV_ITEMS, item.key);
-              const newOpenNestedDropdowns = {};
-              if (path) {
-                  path.forEach(keyInPath => {
-                      newOpenNestedDropdowns[keyInPath] = true;
-                  });
-              }
-              setOpenNestedDropdowns(newOpenNestedDropdowns);
-              if (path && path.length > 0) {
-                  setOpenDropdown(path[0]);
-              } else {
-                  setOpenDropdown(null);
-              }
+              setSidebarOpen(false); // Close sidebar after click (mobile)
             }}
-            className={`w-full justify-start flex items-center gap-2 py-1 ${level === 0 ? 'text-base' : 'text-sm'}`}
+            className={`w-full justify-start flex items-center gap-2 py-1 ${
+              level === 0 ? "text-base" : "text-sm"
+            }`}
           >
             {item.icon} {item.label}
           </Button>
         )}
       </div>
     ));
-  };
 
+  const renderContent = () => {
+    const props = { branch };
+    switch (activeTab) {
+      case "staffForm": return <StaffForm {...props} />;
+      case "clientForm": return <ClientDetails {...props} />;
+      case "loan": return <Loan {...props} />;
+      case "repaymentSchedule": return <Payments {...props} />;
+      case "savings": return <Savings {...props} />;
+      case "withdrawal": return <Withdrawal {...props} />;
+      case "processingFees": return <ProcessingFee {...props} />;
+      case "generalportfolio": return <GeneralReportTransactionGPT {...props} />;
+      case "staffportfolio": return <StaffReportTransactionGPT {...props} />;
+      case "groupReportTransactionGPT": return <GroupReportTransactionGPT {...props} />;
+      case "overdueLoans": return <OverdueLoans {...props} />;
+      case "disbursedLoans": return <DisbursedLoans {...props} />;
+      case "outstandingBalances": return <OutstandingBalances {...props} />;
+      case "fullypaid": return <FullPaid {...props} />;
+      case "paymentdetails": return <PaymentDetails {...props} />;
+      case "dashboard": return <ClientReport {...props} />;
+      default: return <Dashboard branch={branch} />;
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
       {/* Sidebar */}
-      <div className="w-64 bg-white p-4 border-r border-gray-200 shadow-lg flex flex-col">
-        <h2 className="text-3xl font-bold text-indigo-700 mb-6">{branchName}</h2>
+      <div
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-white p-4 border-r border-gray-200 shadow-lg transform transition-transform duration-300
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 md:static md:block`}
+      >
+        <h2 className="text-3xl font-bold text-indigo-700 mb-6">
+          {branch?.branchName || "Admin Panel"}
+        </h2>
         <div className="space-y-2 flex-grow">
           <Button
             variant={activeTab === "dashboard" ? "default" : "ghost"}
             onClick={() => {
               setActiveTab("dashboard");
-              setOpenDropdown(null);
-              setOpenNestedDropdowns({});
+              setSidebarOpen(false);
             }}
             className="w-full justify-start flex items-center gap-2 text-base py-2 mb-2"
           >
@@ -398,11 +272,23 @@ function AdminPanel() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className={`flex-1 p-6 overflow-y-auto ${dashboardBgColor}`}>
-        <h1 className="text-4xl font-bold text-gray-800 mb-6">
-          {getHeaderLabel()}
-        </h1>
+      {/* Overlay on mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-40 z-30 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        ></div>
+      )}
+
+      {/* Main content */}
+      <div className="flex-1 p-4 overflow-y-auto bg-gray-100">
+        {/* Toggle Button (mobile only) */}
+        <div className="flex items-center justify-between mb-6 md:hidden">
+          <Button variant="default" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            {sidebarOpen ? "Close Menu" : "Open Menu"}
+          </Button>
+        </div>
+
         {renderContent()}
       </div>
     </div>

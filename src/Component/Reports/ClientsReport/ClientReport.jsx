@@ -159,7 +159,7 @@ function ClientReport({ branch }) {
     const isLoading = loadingPayments;
 
     return (
-        <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
+        <div className=" font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8">
                 <h1 className="text-3xl font-bold text-gray-800 mb-4">
                     Client Repayment Report (Branch: <span className="text-indigo-600">{branchId || 'N/A'}</span>)
