@@ -36,6 +36,7 @@ import PaymentDetails from "../Load Details/PaymentDetails";
 import ProcessingFee from "../Fees Collection/ProcessingFee";
 import GroupReportTransactionGPT from "../Reports/Portfolio Transaction/GroupReportTransactionGPT";
 import ClientReport from "../Reports/ClientsReport/ClientReport";
+import GroupManager from "../Principal/GroupManager";
 
 // --- NAV ITEMS ---
 const NAV_ITEMS = [
@@ -54,7 +55,7 @@ const NAV_ITEMS = [
     icon: <MdAttachMoney />,
     children: [
       { key: "loan", label: "Loan", icon: <MdAssignment /> },
-      { key: "groups", label: "Groups", icon: <MdPeople /> },
+      { key: "group", label: "Groups", icon: <MdPeople /> },
     ],
   },
   {
@@ -230,6 +231,7 @@ function AdminPanel() {
       case "staffForm": return <StaffForm {...props} />;
       case "clientForm": return <ClientDetails {...props} />;
       case "loan": return <Loan {...props} />;
+      case "group": return <GroupManager {...props} />;
       case "repaymentSchedule": return <Payments {...props} />;
       case "savings": return <Savings {...props} />;
       case "withdrawal": return <Withdrawal {...props} />;

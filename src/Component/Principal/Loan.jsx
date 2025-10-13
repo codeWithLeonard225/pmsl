@@ -250,6 +250,44 @@ function Loan({ branch }) {
         }
     }, [loanList, editingLoanId]);
 
+
+     // NEW: Effect to auto-calculate Repayment Start Date
+    useEffect(() => {
+        if (disbursementDate) {
+            const date = new Date(disbursementDate);
+            // Add 7 days (7 * 24 * 60 * 60 * 1000 milliseconds)
+            date.setDate(date.getDate() + 7); 
+            // Format back to YYYY-MM-DD
+            const formattedDate = date.toISOString().slice(0, 10);
+            setRepaymentStartDate(formattedDate);
+        }
+    }, [disbursementDate]); // Re-run when disbursementDate changes
+
+    // NEW: Effect to auto-populate Interest Rate and Payment Weeks based on Loan Type
+    useEffect(() => {
+        if (editingLoanId) {
+            // Do not override values when editing; only apply defaults when creating new.
+            // When editing, the values are loaded from handleEdit.
+            return; 
+        }
+
+        switch (loanType) {
+            case 'Regular':
+                setInterestRate('18'); // 18%
+                setPaymentWeeks('24'); // 24 weeks
+                break;
+            case 'Special':
+                setInterestRate('24'); // 24%
+                setPaymentWeeks('24'); // 24 weeks
+                break;
+            default:
+                // Clear or reset to default when no type is selected or '3rd Take' is chosen
+                setInterestRate(''); 
+                setPaymentWeeks('');
+                break;
+        }
+    }, [loanType, editingLoanId]); // Re-run when loanType or editing status changes
+
     // Derived state: Filtered loan list based on the search term AND branchId
     const filteredLoans = loanList.filter(loan => {
         const lowerCaseSearchTerm = searchTerm.toLowerCase();
@@ -524,12 +562,12 @@ function Loan({ branch }) {
                             </div>
 
                             {/* Loan Type Dropdown */}
-                            <div className="flex flex-col space-y-1">
+                           <div className="flex flex-col space-y-1">
                                 <label htmlFor="loanType" className="text-sm font-medium text-gray-700">Loan Type</label>
                                 <select
                                     id="loanType"
                                     value={loanType}
-                                    onChange={(e) => setLoanType(e.target.value)}
+                                    onChange={(e) => setLoanType(e.target.value)} // <--- This triggers the new useEffect
                                     className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors duration-200"
                                 >
                                     <option value="">Select Type</option>
@@ -552,9 +590,9 @@ function Loan({ branch }) {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             <Input id="disbursementDate" label="Disbursement Date" type="date" value={disbursementDate} onChange={(e) => setDisbursementDate(e.target.value)} />
                             <Input id="principal" label="Principal" type="number" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="e.g., 5000.00" />
-                            <Input id="repaymentStartDate" label="Repayment Start Date" type="date" value={repaymentStartDate} onChange={(e) => setRepaymentStartDate(e.target.value)} />
-                            <Input id="interestRate" label="Interest %" type="number" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} placeholder="e.g., 10" />
-                            <Input id="paymentWeeks" label="Payment Weeks" type="number" value={paymentWeeks} onChange={(e) => setPaymentWeeks(e.target.value)} placeholder="e.g., 12" />
+                            <Input id="repaymentStartDate" label="Repayment Start Date" type="date" value={repaymentStartDate} onChange={(e) => setRepaymentStartDate(e.target.value)}  readOnly={true} />
+                            <Input id="interestRate" label="Interest %" type="number" value={interestRate} onChange={(e) => setInterestRate(e.target.value)}  placeholder="e.g., 10" />
+                            <Input id="paymentWeeks" label="Payment Weeks" type="number" value={paymentWeeks} onChange={(e) => setPaymentWeeks(e.target.value)}  readOnly={true} placeholder="e.g., 12 " />
                         </div>
                     </div>
 
