@@ -17,6 +17,9 @@ export default function UserForm() {
   const [username, setUsername] = useState("");
   const [users, setUsers] = useState([]);
   const [editingId, setEditingId] = useState(null);
+  const [companyId, setCompanyId] = useState("");
+  const [companyShortCode, setCompanyShortCode] = useState("");
+
 
   const usersCollection = collection(db, "users");
 
@@ -33,31 +36,27 @@ export default function UserForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!branchId || !userCode || !username) {
+    if (!companyId || !companyShortCode || !branchId || !userCode || !username) {
       alert("Please fill all fields!");
       return;
     }
 
     try {
       if (editingId) {
-        // Update existing user
         const userDoc = doc(db, "users", editingId);
-        await updateDoc(userDoc, { branchId, userCode, username });
+        await updateDoc(userDoc, { companyId, companyShortCode, branchId, userCode, username });
         setEditingId(null);
       } else {
-        // Add new user
-        await addDoc(usersCollection, {
-          branchId,
-          userCode,
-          username,
-          createdAt: serverTimestamp(),
-        });
+        await addDoc(usersCollection, { companyId, companyShortCode, branchId, userCode, username, createdAt: serverTimestamp() });
       }
 
       setBranchId("");
       setUserCode("");
       setUsername("");
       fetchUsers();
+      setCompanyId("");
+setCompanyShortCode("");
+
     } catch (error) {
       console.error("Error saving user: ", error);
       alert("Failed to save user");
@@ -65,11 +64,14 @@ export default function UserForm() {
   };
 
   const handleEdit = (user) => {
-    setBranchId(user.branchId);
-    setUserCode(user.userCode);
-    setUsername(user.username);
-    setEditingId(user.id);
-  };
+  setBranchId(user.branchId || "");
+  setUserCode(user.userCode || "");
+  setUsername(user.username || "");
+  setEditingId(user.id);
+  setCompanyId(user.companyId || "");
+  setCompanyShortCode(user.companyShortCode || "");
+};
+
 
   const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this user?")) {
@@ -84,6 +86,22 @@ export default function UserForm() {
       <div className="bg-white shadow-lg rounded-2xl p-6 mb-6">
         <h2 className="text-xl font-bold mb-4">{editingId ? "Edit User" : "Add New User"}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="text"
+            placeholder="Company ID (e.g. PMC_001)"
+            value={companyId}
+            onChange={(e) => setCompanyId(e.target.value.toUpperCase())}
+            className="w-full border p-2 rounded-lg"
+          />
+
+          <input
+            type="text"
+            placeholder="Company Short Code (e.g. PMC)"
+            value={companyShortCode}
+            onChange={(e) => setCompanyShortCode(e.target.value.toUpperCase())}
+            className="w-full border p-2 rounded-lg"
+          />
+
           <input
             type="text"
             placeholder="Branch ID"
@@ -119,7 +137,9 @@ export default function UserForm() {
         <h2 className="text-xl font-bold mb-4">Users List</h2>
         <table className="w-full table-auto border-collapse border border-gray-300">
           <thead>
-            <tr className="bg-gray-100">
+            <tr className="bg-gray-100"><th className="border px-4 py-2">Company ID</th>
+              <th className="border px-4 py-2">Code</th>
+
               <th className="border px-4 py-2">Branch ID</th>
               <th className="border px-4 py-2">User Code</th>
               <th className="border px-4 py-2">Username</th>
@@ -129,6 +149,9 @@ export default function UserForm() {
           <tbody>
             {users.map((user) => (
               <tr key={user.id}>
+                <td className="border px-4 py-2">{user.companyId}</td>
+                <td className="border px-4 py-2">{user.companyShortCode}</td>
+
                 <td className="border px-4 py-2">{user.branchId}</td>
                 <td className="border px-4 py-2">{user.userCode}</td>
                 <td className="border px-4 py-2">{user.username}</td>
@@ -150,7 +173,7 @@ export default function UserForm() {
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan="4" className="text-center py-4">No users found.</td>
+               <td colSpan="6" className="text-center py-4">No users found.</td>
               </tr>
             )}
           </tbody>

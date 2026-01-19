@@ -73,7 +73,8 @@ export default function StaffReportTransactionGPT() {
       let q = query(
         loansRef,
         where("disbursementDate", ">=", startDate),
-        where("disbursementDate", "<=", endDate)
+        where("disbursementDate", "<=", endDate),
+         where('branchId', '==', branchId),
       );
 
       const snapshot = await getDocs(q);

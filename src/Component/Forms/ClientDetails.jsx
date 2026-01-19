@@ -94,11 +94,14 @@ function ClientDetails({ branch }) { // Add branch to props
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     // NEW: State for Branch ID
     const [branchId, setBranchId] = useState('');
+      const [companyShortCode, setCompanyShortCode] = useState(''); // New state
     const [error, setError] = useState(null); // New state for branch ID error
 
     // State for photo URL from Cloudinary and a ref for the hidden file input
     const [photoUrl, setPhotoUrl] = useState('');
     const fileInputRef = useRef(null);
+
+  
 
     // NEW: State for local image preview URL and upload status
     const [imagePreviewUrl, setImagePreviewUrl] = useState('');
@@ -140,6 +143,71 @@ function ClientDetails({ branch }) { // Add branch to props
             window.removeEventListener("offline", handleOffline);
         };
     }, []);
+
+
+    // --- 2. EFFECT: RETRIEVE SESSION DATA (Branch & ShortCode) ---
+    useEffect(() => {
+        const keys = Object.keys(sessionStorage);
+        let foundData = null;
+
+        keys.forEach(key => {
+            const val = sessionStorage.getItem(key);
+            if (val && val.includes("companyShortCode")) {
+                try {
+                    foundData = JSON.parse(val);
+                } catch (e) { console.error("Session parse error", e); }
+            }
+        });
+
+        if (foundData) {
+            if (foundData.branchId) setBranchId(foundData.branchId);
+            if (foundData.companyShortCode) setCompanyShortCode(foundData.companyShortCode);
+        } else {
+            // Fallback for flat items
+            setBranchId(branch?.branchId || sessionStorage.getItem('branchId') || '');
+            setCompanyShortCode(sessionStorage.getItem('companyShortCode') || '');
+        }
+    }, [branch]);
+
+    // --- 3. EFFECT: REAL-TIME LISTENER (Filtered by Branch) ---
+    useEffect(() => {
+        if (!branchId) return;
+        setLoading(true);
+
+        const q = query(clientsCollectionRef, where("branchId", "==", branchId));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedClients = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+            setClientList(fetchedClients);
+            setLoading(false);
+        }, (error) => {
+            console.error("Firestore Error:", error);
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, [branchId]);
+
+    // --- 4. EFFECT: SEQUENTIAL ID GENERATION (Same as Staff logic) ---
+    useEffect(() => {
+        // Only generate if we are not editing
+        if (!editingClientId) {
+            // Default to "pmcd" if no shortcode is found, same as your staff logic used "STAFF"
+            const code = (companyShortCode || "pmcd").toLowerCase();
+            
+            const latestClientNumber = clientList.reduce((max, client) => {
+                // Regex looks for: shortcode-sd-NUMBER
+                const regex = new RegExp(`^${code}-sd-(\\d+)$`, 'i');
+                const numMatch = (client.clientId || "").match(regex);
+                const num = numMatch ? parseInt(numMatch[1], 10) : 0;
+                return num > max ? num : max;
+            }, 0);
+
+            const newNumber = latestClientNumber + 1;
+            // Format: CODE-sd-01
+            const formattedId = `${code.toUpperCase()}-sd-${String(newNumber).padStart(2, '0')}`;
+            setClientId(formattedId);
+        }
+    }, [clientList, editingClientId, companyShortCode]);
 
     // 1. **CRITICAL FIX**: Determine and set the Branch ID first.
     useEffect(() => {

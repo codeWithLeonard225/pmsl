@@ -86,6 +86,8 @@ function Loan({ branch }) {
     const [clientLoading, setClientLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
+    const [branchCouncil, setBranchCouncil] = useState('');
+
 
 
     useEffect(() => {
@@ -132,7 +134,7 @@ function Loan({ branch }) {
     // NEW: Effect to fetch groups from Firestore based on branchId
     useEffect(() => {
         // Now checks for branchId and error before proceeding
-        if (!branchId || error) return; 
+        if (!branchId || error) return;
 
         const qGroups = query(
             groupsCollectionRef,
@@ -211,7 +213,7 @@ function Loan({ branch }) {
 
         try {
             // Filters by both clientId and branchId
-            const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId)); 
+            const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId));
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
                     const clientData = snapshot.docs[0].data();
@@ -251,12 +253,12 @@ function Loan({ branch }) {
     }, [loanList, editingLoanId]);
 
 
-     // NEW: Effect to auto-calculate Repayment Start Date
+    // NEW: Effect to auto-calculate Repayment Start Date
     useEffect(() => {
         if (disbursementDate) {
             const date = new Date(disbursementDate);
             // Add 7 days (7 * 24 * 60 * 60 * 1000 milliseconds)
-            date.setDate(date.getDate() + 7); 
+            date.setDate(date.getDate() + 7);
             // Format back to YYYY-MM-DD
             const formattedDate = date.toISOString().slice(0, 10);
             setRepaymentStartDate(formattedDate);
@@ -268,7 +270,7 @@ function Loan({ branch }) {
         if (editingLoanId) {
             // Do not override values when editing; only apply defaults when creating new.
             // When editing, the values are loaded from handleEdit.
-            return; 
+            return;
         }
 
         switch (loanType) {
@@ -282,7 +284,7 @@ function Loan({ branch }) {
                 break;
             default:
                 // Clear or reset to default when no type is selected or '3rd Take' is chosen
-                setInterestRate(''); 
+                setInterestRate('');
                 setPaymentWeeks('');
                 break;
         }
@@ -321,6 +323,8 @@ function Loan({ branch }) {
         setGroupId('');
         setGroupName('');
         setEditingLoanId(null);
+        setBranchCouncil('');
+
     };
 
     // Handle adding a new group to Firestore
@@ -357,7 +361,7 @@ function Loan({ branch }) {
     // Handle form submission (add new or update existing loan)
     const handleSubmit = async (event) => {
         event.preventDefault();
-        
+
         if (error) {
             alert(error);
             return;
@@ -378,6 +382,7 @@ function Loan({ branch }) {
             staffName,
             loanOutcome,
             loanType,
+            branchCouncil, // ✅ ADD THIS
             processingFee: parseFloat(processingFee) || 0,
             itFee: parseFloat(itFee) || 0,
             riskPremium: parseFloat(riskPremium) || 0,
@@ -431,6 +436,8 @@ function Loan({ branch }) {
         setPaymentWeeks(loan.paymentWeeks);
         setGroupId(loan.groupId);
         setGroupName(loan.groupName);
+        setBranchCouncil(loan.branchCouncil || '');
+
     };
 
     // Handle the "Delete" button click with PIN confirmation
@@ -458,7 +465,7 @@ function Loan({ branch }) {
             alert("Failed to delete loan data. Please try again.");
         }
     };
-    
+
     // ------------------------------------------------------------------
     // Simple JSX Render section for completeness (you'd have more here)
     if (error) {
@@ -474,19 +481,19 @@ function Loan({ branch }) {
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
                 <div className='flex text-center align-center justify-between'>
-                <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">
-                    {editingLoanId ? 'Edit Loan Disbursement' : 'Loan Disbursement Form'}
-                </h1>
+                    <h1 className="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">
+                        {editingLoanId ? 'Edit Loan Disbursement' : 'Loan Disbursement Form'}
+                    </h1>
 
-                {/* Online / Offline Status */}
-                <p
-                    className={`text-sm font-semibold ${isOnline ? "text-green-600" : "text-red-600"
-                        }`}
-                >
-                    {isOnline ? "✅ You are online" : "⚠️ You are offline"}
-                </p>
+                    {/* Online / Offline Status */}
+                    <p
+                        className={`text-sm font-semibold ${isOnline ? "text-green-600" : "text-red-600"
+                            }`}
+                    >
+                        {isOnline ? "✅ You are online" : "⚠️ You are offline"}
+                    </p>
                 </div>
-                
+
 
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Loan Details Section */}
@@ -561,8 +568,18 @@ function Loan({ branch }) {
                                 </select>
                             </div>
 
+                            <Input
+                                id="branchCouncil"
+                                label="Branch Council"
+                                type="text"
+                                value={branchCouncil}
+                                onChange={(e) => setBranchCouncil(e.target.value)}
+                                placeholder="e.g.,  nle"
+                            />
+
+
                             {/* Loan Type Dropdown */}
-                           <div className="flex flex-col space-y-1">
+                            <div className="flex flex-col space-y-1">
                                 <label htmlFor="loanType" className="text-sm font-medium text-gray-700">Loan Type</label>
                                 <select
                                     id="loanType"
@@ -590,9 +607,9 @@ function Loan({ branch }) {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             <Input id="disbursementDate" label="Disbursement Date" type="date" value={disbursementDate} onChange={(e) => setDisbursementDate(e.target.value)} />
                             <Input id="principal" label="Principal" type="number" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="e.g., 5000.00" />
-                            <Input id="repaymentStartDate" label="Repayment Start Date" type="date" value={repaymentStartDate} onChange={(e) => setRepaymentStartDate(e.target.value)}  readOnly={true} />
-                            <Input id="interestRate" label="Interest %" type="number" value={interestRate} onChange={(e) => setInterestRate(e.target.value)}  placeholder="e.g., 10" />
-                            <Input id="paymentWeeks" label="Payment Weeks" type="number" value={paymentWeeks} onChange={(e) => setPaymentWeeks(e.target.value)}  readOnly={true} placeholder="e.g., 12 " />
+                            <Input id="repaymentStartDate" label="Repayment Start Date" type="date" value={repaymentStartDate} onChange={(e) => setRepaymentStartDate(e.target.value)} readOnly={true} />
+                            <Input id="interestRate" label="Interest %" type="number" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} placeholder="e.g., 10" />
+                            <Input id="paymentWeeks" label="Payment Weeks" type="number" value={paymentWeeks} onChange={(e) => setPaymentWeeks(e.target.value)} readOnly={true} placeholder="e.g., 12 " />
                         </div>
                     </div>
 

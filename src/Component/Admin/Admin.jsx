@@ -37,9 +37,28 @@ import ProcessingFee from "../Fees Collection/ProcessingFee";
 import GroupReportTransactionGPT from "../Reports/Portfolio Transaction/GroupReportTransactionGPT";
 import ClientReport from "../Reports/ClientsReport/ClientReport";
 import GroupManager from "../Principal/GroupManager";
+import ActualExpenses from "../TrialBalance/ActualExpenses";
+import OfficeRentPrepaid from "../TrialBalance/OfficeRentPrepaid";
+import TrialBalance from "../TrialBalance/TrialBalance";
+import BranchForm from "../Admin/BranchForm";
+import UserForm from "../Admin/UserForm";
+import CompaniesForm from "../Admin/CompaniesForm";
 
 // --- NAV ITEMS ---
 const NAV_ITEMS = [
+  // {
+  //   key: "trialBalance",
+  //   label: "Trail Balance",
+  //   icon: <MdEdit />,
+  //   children: [
+  //     { key: "actualExpences", label: "Actual Expenses", icon: <MdPerson /> },
+  //     { key: "officeRentPrepaid", label: "OfficeRentPrepaid", icon: <MdPeople /> },
+  //     { key: "trialBalance", label: "TrialBalance", icon: <MdPeople /> },
+  //     { key: "BranchForm", label: "BranchForm", icon: <MdPeople /> },
+  //     { key: "UserForm", label: "UserForm", icon: <MdPeople /> },
+  //     { key: "CompaniesForm", label: "CompaniesForm", icon: <MdPeople /> },
+  //   ],
+  // },
   {
     key: "forms",
     label: "Forms",
@@ -228,6 +247,9 @@ function AdminPanel() {
   const renderContent = () => {
     const props = { branch };
     switch (activeTab) {
+      // case "actualExpences": return <ActualExpenses {...props} />;
+      // case "officeRentPrepaid": return <OfficeRentPrepaid {...props} />;
+      // case "trialBalance": return <TrialBalance {...props} />;
       case "staffForm": return <StaffForm {...props} />;
       case "clientForm": return <ClientDetails {...props} />;
       case "loan": return <Loan {...props} />;
@@ -236,15 +258,18 @@ function AdminPanel() {
       case "savings": return <Savings {...props} />;
       case "withdrawal": return <Withdrawal {...props} />;
       case "processingFees": return <ProcessingFee {...props} />;
-      case "generalportfolio": return <GeneralReportTransactionGPT {...props} />;
-      case "staffportfolio": return <StaffReportTransactionGPT {...props} />;
-      case "groupReportTransactionGPT": return <GroupReportTransactionGPT {...props} />;
-      case "overdueLoans": return <OverdueLoans {...props} />;
-      case "disbursedLoans": return <DisbursedLoans {...props} />;
-      case "outstandingBalances": return <OutstandingBalances {...props} />;
-      case "fullypaid": return <FullPaid {...props} />;
-      case "paymentdetails": return <PaymentDetails {...props} />;
+      // case "generalportfolio": return <GeneralReportTransactionGPT {...props} />;
+      // case "staffportfolio": return <StaffReportTransactionGPT {...props} />;
+      // case "groupReportTransactionGPT": return <GroupReportTransactionGPT {...props} />;
+      // case "overdueLoans": return <OverdueLoans {...props} />;
+      // case "disbursedLoans": return <DisbursedLoans {...props} />;
+      // case "outstandingBalances": return <OutstandingBalances {...props} />;
+      // case "fullypaid": return <FullPaid {...props} />;
+      // case "paymentdetails": return <PaymentDetails {...props} />;
       case "dashboard": return <ClientReport {...props} />;
+      case "UserForm": return <UserForm {...props} />;
+      case "BranchForm": return <BranchForm {...props} />;
+      case "CompaniesForm": return <CompaniesForm {...props} />;
       default: return <Dashboard branch={branch} />;
     }
   };
