@@ -3,11 +3,11 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../../../firebase";
 import { FaSpinner, FaPrint } from "react-icons/fa";
 
-// Helper: format as USD
+// Currency formatter
 const formatCurrency = (amount) =>
     new Intl.NumberFormat("en-SL", { style: "currency", currency: "SLE" }).format(amount);
 
-// Helper: format date
+// Date formatter
 const formatDate = (dateString) => {
     const options = { year: "numeric", month: "long", day: "numeric" };
     return new Date(dateString).toLocaleDateString("en-SL", options);
@@ -19,34 +19,54 @@ export default function GroupReportTransactionGPT() {
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [staffFilter, setStaffFilter] = useState("");
-    const [staffList, setStaffList] = useState([]); // List of staff fullName
-    const [noData, setNoData] = useState(false);
+    const [staffList, setStaffList] = useState([]);
+    const [branchId, setBranchId] = useState("");
     const [error, setError] = useState("");
+    const [noData, setNoData] = useState(false);
 
-    // 🔍 Fetch all staff fullName from staffMembers for the filter dropdown
+    // 🔐 Load branchId from session
     useEffect(() => {
-        const fetchStaffList = async () => {
-            try {
-                const staffSnap = await getDocs(collection(db, "staffMembers"));
-                const list = staffSnap.docs.map((doc) => doc.data().fullName);
-                setStaffList(list);
-            } catch (err) {
-                console.error("Error fetching staff list:", err);
-                setError("Failed to load staff list.");
+        const keys = Object.keys(sessionStorage);
+        let found = null;
+
+        keys.forEach((key) => {
+            const val = sessionStorage.getItem(key);
+            if (val && val.includes("branchId")) {
+                try {
+                    found = JSON.parse(val);
+                } catch { }
             }
-        };
-        fetchStaffList();
+        });
+
+        setBranchId(found?.branchId || sessionStorage.getItem("branchId") || "");
     }, []);
 
-    // 🔍 Fetch report from Firestore
+    // 👨‍💼 Load staff list (branch-based)
+    useEffect(() => {
+        if (!branchId) return;
+
+        const fetchStaff = async () => {
+            const snap = await getDocs(
+                query(
+                    collection(db, "staffMembers"),
+                    where("branchId", "==", branchId)
+                )
+            );
+            setStaffList(snap.docs.map((d) => d.data().fullName));
+        };
+
+        fetchStaff();
+    }, [branchId]);
+
+    // 📊 Fetch & filter report (JS filtering)
     const fetchReport = async () => {
         setLoading(true);
-        setNoData(false);
         setError("");
-        setReportData({}); // Clear previous report data
+        setNoData(false);
+        setReportData({});
 
         if (!startDate || !endDate) {
-            setError("Please select both a start and end date.");
+            setError("Please select start and end dates.");
             setLoading(false);
             return;
         }
@@ -58,259 +78,157 @@ export default function GroupReportTransactionGPT() {
         }
 
         try {
-            const loansRef = collection(db, "loans");
-            let q = query(
-                loansRef,
-                where("disbursementDate", ">=", startDate),
-                where("disbursementDate", "<=", endDate),
-                where('branchId', '==', branchId),
+            const q = query(
+                collection(db, "loans"),
+                where("branchId", "==", branchId)
             );
 
-            const snapshot = await getDocs(q);
-            let tempData = {};
+            const snap = await getDocs(q);
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            let temp = {};
 
-            if (snapshot.empty) {
-                setReportData({});
-                setNoData(true);
-                return;
-            }
-
-            snapshot.forEach((doc) => {
+            snap.forEach((doc) => {
                 const loan = doc.data();
-                const staff = loan.staffName || "Unknown Staff";
+                const loanDate = new Date(loan.disbursementDate);
+
+                // JS date filter
+                if (loanDate < start || loanDate > end) return;
+
+                // Staff filter
+                if (staffFilter && loan.staffName !== staffFilter) return;
+
                 const group = loan.groupName || "N/A";
+                const principal = parseFloat(loan.principal || 0);
 
-                // Apply staff filter
-                if (staffFilter && staff !== staffFilter) return;
-
-                // Group data by group name
-                if (!tempData[group]) {
-                    tempData[group] = {
+                if (!temp[group]) {
+                    temp[group] = {
                         loans: [],
                         groupTotal: { count: 0, principal: 0 },
                     };
                 }
 
-                const principal = parseFloat(loan.principal || 0);
-
-                // Add the loan details to the group
-                tempData[group].loans.push({
+                temp[group].loans.push({
                     id: doc.id,
                     clientId: loan.clientId,
                     clientName: loan.clientName,
-                    groupId: loan.groupId,
                     loanId: loan.loanId,
-                    principal: principal,
+                    principal,
                     disbursementDate: loan.disbursementDate,
                 });
 
-                // Update group totals
-                tempData[group].groupTotal.count += 1;
-                tempData[group].groupTotal.principal += principal;
+                temp[group].groupTotal.count += 1;
+                temp[group].groupTotal.principal += principal;
             });
 
-            setReportData(tempData);
-            if (Object.keys(tempData).length === 0) setNoData(true);
+            setReportData(temp);
+            if (Object.keys(temp).length === 0) setNoData(true);
         } catch (err) {
-            console.error("Error fetching report:", err);
-            setError("Failed to fetch report. Please check your connection.");
+            console.error(err);
+            setError("Failed to load report.");
         } finally {
             setLoading(false);
         }
     };
 
-    // Calculate overall totals for the report summary
+    // Totals
     const overallTotals = Object.values(reportData).reduce(
-        (acc, group) => {
-            acc.count += group.groupTotal.count;
-            acc.principal += group.groupTotal.principal;
+        (acc, g) => {
+            acc.count += g.groupTotal.count;
+            acc.principal += g.groupTotal.principal;
             return acc;
         },
         { count: 0, principal: 0 }
     );
 
-    // 🖨️ Print only the report area
-    // 🖨️ Print only the report area without refreshing the page
+    // 🖨 Print
     const handlePrint = () => {
-        // Get the HTML content of the printable area
-        const printContents = document.getElementById("printArea").innerHTML;
-
-        // Create a new hidden iframe
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        document.body.appendChild(iframe);
-
-        const iframeDoc = iframe.contentWindow.document;
-
-        // Write the print-specific CSS and the report content to the iframe
-        iframeDoc.open();
-        iframeDoc.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Print Report</title>
-            <style>
-                /* Add any specific print styles here */
-                @media print {
-                    body {
-                        font-family: sans-serif;
-                        margin: 20px;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin-bottom: 20px;
-                    }
-                    th, td {
-                        border: 1px solid #ccc;
-                        padding: 8px;
-                        text-align: left;
-                    }
-                    th {
-                        background-color: #f2f2f2;
-                    }
-                    h1, h3, h4, h5 {
-                        color: #333;
-                    }
-                    .text-right {
-                        text-align: right;
-                    }
-                    /* Hide any non-printable elements */
-                    .no-print {
-                        display: none;
-                    }
-                }
-            </style>
-        </head>
-        <body>
-            ${printContents}
-        </body>
-        </html>
-    `);
-        iframeDoc.close();
-
-        // Trigger the print dialog for the iframe
-        iframe.contentWindow.print();
-
-        // Clean up the iframe after a short delay
-        setTimeout(() => {
-            document.body.removeChild(iframe);
-        }, 500);
+        const content = document.getElementById("printArea").innerHTML;
+        const win = window.open("", "", "width=900,height=650");
+        win.document.write(`<html><body>${content}</body></html>`);
+        win.document.close();
+        win.print();
     };
 
     return (
-        <div className="p-6 bg-gray-50 min-h-screen font-sans">
-            <div className="max-w-6xl mx-auto bg-white rounded-lg shadow-xl p-6">
-                {/* Controls */}
-                <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <h2 className="text-2xl font-bold text-gray-800">Group Transaction Report</h2>
-                    <div className="flex flex-col md:flex-row gap-2">
-                        <select
-                            value={staffFilter}
-                            onChange={(e) => setStaffFilter(e.target.value)}
-                            className="border border-gray-300 rounded-lg p-2"
-                        >
-                            <option value="">-- All Staff --</option>
-                            {staffList.map((name, idx) => (
-                                <option key={idx} value={name}>
-                                    {name}
-                                </option>
-                            ))}
-                        </select>
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="border border-gray-300 rounded-lg p-2"
-                        />
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="border border-gray-300 rounded-lg p-2"
-                        />
-                        <button
-                            onClick={fetchReport}
-                            disabled={loading}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow disabled:bg-gray-400"
-                        >
-                            {loading ? <FaSpinner className="animate-spin inline" /> : "Filter"}
-                        </button>
-                        <button
-                            onClick={handlePrint}
-                            disabled={Object.keys(reportData).length === 0 || loading}
-                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow disabled:bg-gray-400"
-                        >
-                            <FaPrint className="inline-block mr-2" /> Print Report
-                        </button>
-                    </div>
+        <div className="p-6 bg-gray-50 min-h-screen">
+            <div className="bg-white p-6 rounded shadow max-w-6xl mx-auto">
+                <h2 className="text-2xl font-bold mb-4">Group Transaction Report</h2>
+
+                {/* Filters */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                    <select
+                        value={staffFilter}
+                        onChange={(e) => setStaffFilter(e.target.value)}
+                        className="border p-2 rounded"
+                    >
+                        <option value="">All Staff</option>
+                        {staffList.map((s, i) => (
+                            <option key={i}>{s}</option>
+                        ))}
+                    </select>
+
+                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border p-2 rounded" />
+                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border p-2 rounded" />
+
+                    <button onClick={fetchReport} className="bg-blue-600 text-white px-4 rounded">
+                        {loading ? <FaSpinner className="animate-spin" /> : "Filter"}
+                    </button>
+
+                    <button onClick={handlePrint} disabled={!Object.keys(reportData).length} className="bg-green-600 text-white px-4 rounded">
+                        <FaPrint />
+                    </button>
                 </div>
 
-                {/* Error / Empty */}
-                {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
-                {noData && !loading && (
-                    <div className="bg-yellow-100 text-yellow-700 p-3 rounded mb-4">
-                        No transactions found for selected criteria.
-                    </div>
-                )}
+                {error && <div className="text-red-600 mb-2">{error}</div>}
+                {noData && <div className="text-yellow-600 mb-2">No data found.</div>}
 
-                {/* Printable Report Area */}
-                <div id="printArea" className="space-y-6">
-                    {Object.keys(reportData).length > 0 && (
-                        <>
-                            <h1 className="text-center text-2xl font-bold p-4">Loan Portfolio Transaction Summary</h1>
-                            <h3 className="text-lg font-semibold mb-4">
-                                Report for {staffFilter || "All Staff"} from {formatDate(startDate)} to {formatDate(endDate)}
-                            </h3>
-                        </>
-                    )}
-                    {Object.keys(reportData).map((groupName) => (
-                        <div key={groupName} className="mb-8">
-                            <h4 className="text-xl font-bold mb-2 p-2 bg-gray-100 rounded-lg">Group: {groupName}</h4>
-                            <table className="w-full border-collapse border border-gray-300 text-sm">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="border p-2 text-left">Client ID</th>
-                                        <th className="border p-2 text-left">Client Name</th>
-                                        <th className="border p-2 text-left">Loan ID</th>
-                                        <th className="border p-2 text-left">Principal</th>
-                                        <th className="border p-2 text-left">Disbursement Date</th>
-                                    </tr>
+                {/* Report */}
+                <div id="printArea">
+                    {Object.keys(reportData).map((group) => (
+                        <div key={group} className="mb-6">
+                            <h3 className="font-bold text-lg mb-2">Group: {group}</h3>
+                            <table className="w-full border text-sm">
+                              
+                                    <thead className="bg-gray-100">
+                                        <tr>
+                                            <th className="border p-2 text-left">Client ID</th>
+                                            <th className="border p-2 text-left">Client Name</th>
+                                            <th className="border p-2 text-left">Loan ID</th>
+                                            <th className="border p-2 text-left">Principal</th>
+                                            <th className="border p-2 text-left">Disbursement Date</th>
+                                        </tr>
+                                  
+
                                 </thead>
                                 <tbody>
-                                    {reportData[groupName].loans.map((loan) => (
+                                    {reportData[group].loans.map((loan) => (
                                         <tr key={loan.id} className="hover:bg-gray-50">
                                             <td className="border p-2">{loan.clientId}</td>
                                             <td className="border p-2">{loan.clientName}</td>
                                             <td className="border p-2">{loan.loanId}</td>
-                                            <td className="border p-2 text-right">{formatCurrency(loan.principal)}</td>
-                                            <td className="border p-2">{formatDate(loan.disbursementDate)}</td>
+                                            <td className="border p-2 text-right">
+                                                {formatCurrency(loan.principal)}
+                                            </td>
+                                            <td className="border p-2">
+                                                {formatDate(loan.disbursementDate)}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
+
                             </table>
-                            <div className="mt-4 font-bold text-right text-base text-gray-700">
-                                Group Total ({reportData[groupName].groupTotal.count} loans): {formatCurrency(reportData[groupName].groupTotal.principal)}
+                            <div className="text-right font-bold mt-2">
+                                Total ({reportData[group].groupTotal.count} loans):{" "}
+                                {formatCurrency(reportData[group].groupTotal.principal)}
                             </div>
                         </div>
                     ))}
+
                     {Object.keys(reportData).length > 0 && (
-                        <div className="mt-8 pt-4 border-t-2 border-gray-300">
-                            <h4 className="text-xl font-bold mb-2">Overall Summary</h4>
-                            <table className="w-full border-collapse border border-gray-300 text-sm">
-                                <thead className="bg-gray-100">
-                                    <tr>
-                                        <th className="border p-2">Total Loans Count</th>
-                                        <th className="border p-2">Total Principal</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr className="bg-blue-50 font-bold">
-                                        <td className="border p-2 text-center">{overallTotals.count}</td>
-                                        <td className="border p-2 text-right">{formatCurrency(overallTotals.principal)}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div className="border-t pt-4 font-bold text-right">
+                            Overall Total ({overallTotals.count} loans):{" "}
+                            {formatCurrency(overallTotals.principal)}
                         </div>
                     )}
                 </div>

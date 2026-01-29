@@ -94,7 +94,6 @@ function ClientDetails({ branch }) { // Add branch to props
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     // NEW: State for Branch ID
     const [branchId, setBranchId] = useState('');
-      const [companyShortCode, setCompanyShortCode] = useState(''); // New state
     const [error, setError] = useState(null); // New state for branch ID error
 
     // State for photo URL from Cloudinary and a ref for the hidden file input
@@ -146,28 +145,7 @@ function ClientDetails({ branch }) { // Add branch to props
 
 
     // --- 2. EFFECT: RETRIEVE SESSION DATA (Branch & ShortCode) ---
-    useEffect(() => {
-        const keys = Object.keys(sessionStorage);
-        let foundData = null;
-
-        keys.forEach(key => {
-            const val = sessionStorage.getItem(key);
-            if (val && val.includes("companyShortCode")) {
-                try {
-                    foundData = JSON.parse(val);
-                } catch (e) { console.error("Session parse error", e); }
-            }
-        });
-
-        if (foundData) {
-            if (foundData.branchId) setBranchId(foundData.branchId);
-            if (foundData.companyShortCode) setCompanyShortCode(foundData.companyShortCode);
-        } else {
-            // Fallback for flat items
-            setBranchId(branch?.branchId || sessionStorage.getItem('branchId') || '');
-            setCompanyShortCode(sessionStorage.getItem('companyShortCode') || '');
-        }
-    }, [branch]);
+    
 
     // --- 3. EFFECT: REAL-TIME LISTENER (Filtered by Branch) ---
     useEffect(() => {
@@ -188,26 +166,20 @@ function ClientDetails({ branch }) { // Add branch to props
     }, [branchId]);
 
     // --- 4. EFFECT: SEQUENTIAL ID GENERATION (Same as Staff logic) ---
-    useEffect(() => {
-        // Only generate if we are not editing
-        if (!editingClientId) {
-            // Default to "pmcd" if no shortcode is found, same as your staff logic used "STAFF"
-            const code = (companyShortCode || "pmcd").toLowerCase();
-            
-            const latestClientNumber = clientList.reduce((max, client) => {
-                // Regex looks for: shortcode-sd-NUMBER
-                const regex = new RegExp(`^${code}-sd-(\\d+)$`, 'i');
-                const numMatch = (client.clientId || "").match(regex);
-                const num = numMatch ? parseInt(numMatch[1], 10) : 0;
-                return num > max ? num : max;
-            }, 0);
+   useEffect(() => {
+    if (!branchId || editingClientId) return;
 
-            const newNumber = latestClientNumber + 1;
-            // Format: CODE-sd-01
-            const formattedId = `${code.toUpperCase()}-sd-${String(newNumber).padStart(2, '0')}`;
-            setClientId(formattedId);
-        }
-    }, [clientList, editingClientId, companyShortCode]);
+    const latestClientNumber = clientList.reduce((max, client) => {
+        const match = (client.clientId || "").match(/^pmcd-(\d+)$/i);
+        const num = match ? parseInt(match[1], 10) : 0;
+        return num > max ? num : max;
+    }, 0);
+
+    const newNumber = latestClientNumber + 1;
+    const formattedId = `pmcd-${String(newNumber).padStart(2, '0')}`;
+
+    setClientId(formattedId);
+}, [branchId, clientList, editingClientId]);
 
     // 1. **CRITICAL FIX**: Determine and set the Branch ID first.
     useEffect(() => {

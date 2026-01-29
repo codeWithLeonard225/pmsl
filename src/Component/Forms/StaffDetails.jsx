@@ -1,11 +1,7 @@
 // StaffForm.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, User, Pencil, Trash2 } from 'lucide-react';
-
-// Import your Firebase and Cloudinary configurations
 import { db, cloudinaryConfig } from '../../../firebase';
-
-// Import Firestore functions
 import {
     collection,
     addDoc,
@@ -15,8 +11,6 @@ import {
     onSnapshot,
     query,
     where,
-    getDocs, 
-    writeBatch,
 } from 'firebase/firestore';
 
 /**
@@ -70,7 +64,6 @@ function StaffForm() {
     const [registrationDate, setRegistrationDate] = useState(new Date().toISOString().slice(0, 10));
 
     // --- AUTH/SESSION STATES ---
-    const [companyShortCode, setCompanyShortCode] = useState('');
     const [currentBranchId, setCurrentBranchId] = useState('');
     const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -101,27 +94,10 @@ function StaffForm() {
         };
     }, []);
 
-    // --- EFFECT: Retrieve Session Data (Handles JSON String or Flat Items) ---
+    // --- EFFECT: Retrieve Session Data ---
     useEffect(() => {
-        const keys = Object.keys(sessionStorage);
-        let foundData = null;
-
-        keys.forEach(key => {
-            const val = sessionStorage.getItem(key);
-            if (val && val.includes("companyShortCode")) {
-                try {
-                    foundData = JSON.parse(val);
-                } catch (e) { console.error("Session parse error", e); }
-            }
-        });
-
-        if (foundData) {
-            if (foundData.branchId) setCurrentBranchId(foundData.branchId);
-            if (foundData.companyShortCode) setCompanyShortCode(foundData.companyShortCode);
-        } else {
-            setCurrentBranchId(sessionStorage.getItem('branchId') || '');
-            setCompanyShortCode(sessionStorage.getItem('companyShortCode') || '');
-        }
+        const id = sessionStorage.getItem('branchId');
+        if (id) setCurrentBranchId(id);
     }, []);
 
     // --- EFFECT: Real-time Listener (Filtered by Branch) ---
@@ -155,23 +131,24 @@ function StaffForm() {
         }
     }, [dateOfBirth]);
 
-    // --- EFFECT: Sequential ID Generation ---
+    // --- UPDATED EFFECT: Sequential ID Generation (pmcd-00 format) ---
     useEffect(() => {
-        if (!editingStaffId) {
-            const code = (companyShortCode || "STAFF").toLowerCase();
-            
-            const latestStaffNumber = staffList.reduce((max, staff) => {
-                const regex = new RegExp(`^${code}-sd-(\\d+)$`, 'i');
-                const numMatch = (staff.staffId || "").match(regex);
-                const num = numMatch ? parseInt(numMatch[1], 10) : 0;
-                return num > max ? num : max;
-            }, 0);
+        // Only generate if we are NOT editing an existing staff member
+        if (editingStaffId) return;
 
-            const newNumber = latestStaffNumber + 1;
-            const formattedId = `${code.toUpperCase()}-sd-${String(newNumber).padStart(2, '0')}`;
-            setStaffId(formattedId);
-        }
-    }, [staffList, editingStaffId, companyShortCode]);
+        const latestStaffNumber = staffList.reduce((max, staff) => {
+            // Match specifically for 'pmcd-' followed by numbers
+            const match = (staff.staffId || "").match(/^pmsd-(\d+)$/i);
+            const num = match ? parseInt(match[1], 10) : 0;
+            return num > max ? num : max;
+        }, 0);
+
+        const newNumber = latestStaffNumber + 1;
+        // Format as pmcd-01, pmcd-02, etc.
+        const formattedId = `pmsd-${String(newNumber).padStart(2, '0')}`;
+
+        setStaffId(formattedId);
+    }, [staffList, editingStaffId]);
 
     // --- HANDLER: Image Upload ---
     const handlePhotoImport = async (event) => {
@@ -239,7 +216,7 @@ function StaffForm() {
 
     const handleEdit = (staff) => {
         setEditingStaffId(staff.id);
-        setStaffId(staff.staffId);
+        setStaffId(staff.staffId); // Keep existing ID when editing
         setFullName(staff.fullName);
         setGender(staff.gender);
         setDateOfBirth(staff.dateOfBirth);
@@ -271,6 +248,7 @@ function StaffForm() {
 
     return (
         <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
+            {/* Form Section */}
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
                 <div className="flex items-center justify-between border-b pb-4 mb-6">
                     <h1 className="text-3xl font-bold text-gray-800">
@@ -326,6 +304,7 @@ function StaffForm() {
                 </form>
             </div>
 
+            {/* List Section */}
             <div className="bg-white rounded-xl shadow-lg p-8">
                 <h2 className="text-2xl font-bold mb-4">Registered Staff</h2>
                 <input 
