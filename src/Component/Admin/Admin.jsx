@@ -43,6 +43,13 @@ import TrialBalance from "../TrialBalance/TrialBalance";
 import BranchForm from "../Admin/BranchForm";
 import UserForm from "../Admin/UserForm";
 import CompaniesForm from "../Admin/CompaniesForm";
+import StaffReport from "../Reports/NewReport/StaffReport";
+import LoanAndSavingsReport from "../Reports/NewReport/LoanAndSavingsReport";
+import MasterTransactionLedger from "../Reports/NewReport/MasterTransactionLedger";
+import ConsolidatedStaffLedger from "../Reports/NewReport/ConsolidatedStaffLedger";
+import PaymentTrackingReport from "../Reports/NewReport/PaymentTrackingReport";
+import ClientLoanBreakdown from "../Reports/NewReport/ClientLoanBreakdown";
+import StaffPerformanceReport from "../Reports/NewReport/StaffPerformanceReport";
 
 // --- NAV ITEMS ---
 const NAV_ITEMS = [
@@ -124,14 +131,35 @@ const NAV_ITEMS = [
         ],
       },
       {
-        key: "systemReports",
-        label: "System Reports",
-        icon: <MdBarChart />,
+        key: "paymentReports",
+        label: "Payments Reports",
+        icon: <MdAssignment />,
         children: [
-          { key: "transactionReports", label: "Transaction Logs", icon: <MdAssignment /> },
-          { key: "auditLogs", label: "Audit Logs", icon: <MdBook /> },
+          { key: "LoanAndSavingsReport", label: "Loan And Savings Report", icon: <MdRemoveCircle /> },
+          { key: "ConsolidatedStaffLedger", label: "ConsolidatedStaffLedger", icon: <MdRemoveCircle /> },
+          { key: "MasterTransactionLedger", label: "MasterTransactionLedger", icon: <MdRemoveCircle /> },
+          { key: "PaymentTrackingReport", label: "PaymentTracking", icon: <MdRemoveCircle /> },
         ],
       },
+      {
+        key: "staffReports",
+        label: "staff Reports",
+        icon: <MdAssignment />,
+        children: [
+          { key: "ClientLoanBreakdown", label: "ClientLoanBreakdown", icon: <MdRemoveCircle /> },
+          { key: "StaffReport", label: "Staff Report", icon: <MdRemoveCircle /> },
+          { key: "StaffPerformanceReport", label: "StaffPerformance Reort", icon: <MdRemoveCircle /> },
+        ],
+      },
+      // {
+      //   key: "systemReports",
+      //   label: "System Reports",
+      //   icon: <MdBarChart />,
+      //   children: [
+      //     { key: "transactionReports", label: "Transaction Logs", icon: <MdAssignment /> },
+      //     { key: "auditLogs", label: "Audit Logs", icon: <MdBook /> },
+      //   ],
+      // },
     ],
   },
 ];
@@ -270,6 +298,13 @@ function AdminPanel() {
       case "UserForm": return <UserForm {...props} />;
       case "BranchForm": return <BranchForm {...props} />;
       case "CompaniesForm": return <CompaniesForm {...props} />;
+      case "LoanAndSavingsReport": return <LoanAndSavingsReport {...props} />;
+      case "ConsolidatedStaffLedger": return <ConsolidatedStaffLedger {...props} />;
+      case "StaffReport": return <StaffReport {...props} />;
+      case "MasterTransactionLedger": return <MasterTransactionLedger {...props} />;
+      case "ClientLoanBreakdown": return <ClientLoanBreakdown {...props} />;
+      case "PaymentTrackingReport": return <PaymentTrackingReport {...props} />;
+      case "StaffPerformanceReport": return <StaffPerformanceReport {...props} />;
       default: return <Dashboard branch={branch} />;
     }
   };
