@@ -62,6 +62,7 @@ function Loan({ branch }) {
     const [loanId, setLoanId] = useState('');
     const [clientId, setClientId] = useState('');
     const [clientName, setClientName] = useState('');
+    const [staffId, setStaffId] = useState(''); // NEW state for staffId
     const [staffName, setStaffName] = useState('');
     const [loanOutcome, setLoanOutcome] = useState('');
     const [loanType, setLoanType] = useState('');
@@ -202,38 +203,41 @@ function Loan({ branch }) {
     }, [branchId, error]);
 
     // NEW: useEffect to fetch client details when clientId changes
-    useEffect(() => {
-        if (!clientId || error) {
-            setClientName('');
-            setStaffName('');
-            return;
-        }
+  useEffect(() => {
+    if (!clientId || error) {
+        setClientName('');
+        setStaffName('');
+        setStaffId(''); // Reset staffId
+        return;
+    }
 
-        setClientLoading(true);
+    setClientLoading(true);
 
-        try {
-            // Filters by both clientId and branchId
-            const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                if (!snapshot.empty) {
-                    const clientData = snapshot.docs[0].data();
-                    setClientName(clientData.fullName);
-                    setStaffName(clientData.staffName);
-                } else {
-                    setClientName('');
-                    setStaffName('');
-                }
-                setClientLoading(false);
-            });
-
-            return () => unsubscribe();
-        } catch (error) {
-            console.error("Error fetching client details:", error);
-            setClientName('');
-            setStaffName('');
+    try {
+        const q = query(clientsCollectionRef, where('clientId', '==', clientId), where('branchId', '==', branchId));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            if (!snapshot.empty) {
+                const clientData = snapshot.docs[0].data();
+                setClientName(clientData.fullName);
+                setStaffName(clientData.staffName);
+                setStaffId(clientData.staffId || ''); // 👈 NEW: Capture the staffId from client record
+            } else {
+                setClientName('');
+                setStaffName('');
+                setStaffId('');
+            }
             setClientLoading(false);
-        }
-    }, [clientId, branchId, error]);
+        });
+
+        return () => unsubscribe();
+    } catch (error) {
+        console.error("Error fetching client details:", error);
+        setClientName('');
+        setStaffName('');
+        setStaffId('');
+        setClientLoading(false);
+    }
+}, [clientId, branchId, error]);
 
     // Auto-increment logic for Loan ID (already had this)
     useEffect(() => {
@@ -308,6 +312,7 @@ function Loan({ branch }) {
     const clearForm = () => {
         setClientId('');
         setClientName('');
+        setStaffId('');
         setStaffName('');
         setLoanOutcome('');
         setLoanType('');
@@ -379,6 +384,7 @@ function Loan({ branch }) {
             loanId,
             clientId,
             clientName,
+            staffId,
             staffName,
             loanOutcome,
             loanType,
@@ -422,6 +428,7 @@ function Loan({ branch }) {
         setLoanId(loan.loanId);
         setClientId(loan.clientId);
         setClientName(loan.clientName);
+        setStaffId(loan.staffId || '');
         setStaffName(loan.staffName);
         setLoanOutcome(loan.loanOutcome);
         setLoanType(loan.loanType);
@@ -709,6 +716,9 @@ function Loan({ branch }) {
                                 <thead className="bg-gray-50">
                                     <tr>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">staff Name</th>
+                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[120px]">
+                                            Staff ID
+                                        </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan ID</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client ID</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client Name</th>
@@ -723,6 +733,9 @@ function Loan({ branch }) {
                                     {filteredLoans.map((loan) => (
                                         <tr key={loan.id}>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.staffName}</td>
+                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {loan.staffId}
+                                            </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{loan.loanId}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.clientId}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.clientName}</td>

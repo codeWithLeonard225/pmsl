@@ -223,66 +223,70 @@ const handleSubmit = async (event) => {
             const oldStaffData = staffList.find(s => s.id === editingStaffId);
             const oldName = oldStaffData?.fullName;
 
-            // 1. Update the Staff record itself
+            // 1. Update the Staff record
             batch.update(staffDocRef, staffData);
 
-            // --- SYNC COLLECTIONS (Scoped to currentBranchId) ---
-            const syncCollections = ["clients", "loans", "payments"];
+            // --- CLIENTS COLLECTION SYNC ---
+            const clientsRef = collection(db, "clients");
+            
+            // Sync new client records (via ID)
+            const qNewClients = query(clientsRef, where("staffId", "==", staffId));
+            const newClientSnap = await getDocs(qNewClients);
+            newClientSnap.forEach((d) => {
+                batch.update(doc(db, "clients", d.id), { staffName: fullName, updatedAt: new Date().toISOString() });
+            });
 
-            for (const colName of syncCollections) {
-                const colRef = collection(db, colName);
-
-                // A. Sync records already linked by staffId (within this branch)
-                const qId = query(
-                    colRef, 
-                    where("staffId", "==", staffId),
-                    where("branchId", "==", currentBranchId) // CRITICAL: Branch Scoping
-                );
-                const idSnap = await getDocs(qId);
-                idSnap.forEach((d) => {
-                    batch.update(doc(db, colName, d.id), { 
-                        staffName: fullName, 
-                        updatedAt: new Date().toISOString() 
-                    });
+            // Heal old client records (via Name)
+            if (oldName && oldName !== fullName) {
+                const qOldClients = query(clientsRef, where("staffName", "==", oldName));
+                const oldClientSnap = await getDocs(qOldClients);
+                oldClientSnap.forEach((d) => {
+                    if (!d.data().staffId) {
+                        batch.update(doc(db, "clients", d.id), { staffName: fullName, staffId: staffId, updatedAt: new Date().toISOString() });
+                    }
                 });
+            }
 
-                // B. Heal old records linked by name only (within this branch)
-                if (oldName && oldName !== fullName) {
-                    const qName = query(
-                        colRef, 
-                        where("staffName", "==", oldName),
-                        where("branchId", "==", currentBranchId) // CRITICAL: Branch Scoping
-                    );
-                    const nameSnap = await getDocs(qName);
-                    nameSnap.forEach((d) => {
-                        const data = d.data();
-                        // Only heal if the staffId is missing to avoid overwriting other people
-                        if (!data.staffId) {
-                            batch.update(doc(db, colName, d.id), { 
-                                staffName: fullName, 
-                                staffId: staffId, 
-                                updatedAt: new Date().toISOString() 
-                            });
-                        }
-                    });
-                }
+            // --- LOANS COLLECTION SYNC (Added) ---
+            const loansRef = collection(db, "loans");
+
+            // Update loans linked by staffId
+            const qNewLoans = query(loansRef, where("staffId", "==", staffId));
+            const newLoanSnap = await getDocs(qNewLoans);
+            newLoanSnap.forEach((d) => {
+                batch.update(doc(db, "loans", d.id), { staffName: fullName, updatedAt: new Date().toISOString() });
+            });
+
+            // Heal old loan records linked by name only
+            if (oldName && oldName !== fullName) {
+                const qOldLoans = query(loansRef, where("staffName", "==", oldName));
+                const oldLoanSnap = await getDocs(qOldLoans);
+                oldLoanSnap.forEach((d) => {
+                    if (!d.data().staffId) {
+                        batch.update(doc(db, "loans", d.id), { 
+                            staffName: fullName, 
+                            staffId: staffId, // Attaches the ID for future tracking
+                            updatedAt: new Date().toISOString() 
+                        });
+                    }
+                });
             }
 
             await batch.commit();
-            alert("Staff updated! Clients, Loans, and Payments synced for this branch. ✅");
+            alert("Staff updated! Clients and Loans synced successfully. ✅");
         } else {
-            // Registering new staff
             await addDoc(staffCollectionRef, staffData);
             alert("Staff registered! 🎉");
         }
         clearForm();
     } catch (error) {
         console.error("Sync Error:", error);
-        alert("Error during sync. Check your internet connection.");
+        alert("Error during sync.");
     } finally {
         setSubmitting(false);
     }
 };
+
     const handleEdit = (staff) => {
 
         

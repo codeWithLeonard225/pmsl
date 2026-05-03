@@ -40,6 +40,7 @@ import GroupManager from "../Principal/GroupManager";
 import ActualExpenses from "../TrialBalance/ActualExpenses";
 import OfficeRentPrepaid from "../TrialBalance/OfficeRentPrepaid";
 import TrialBalance from "../TrialBalance/TrialBalance";
+import LegacyStaffRepair from "../TrialBalance/LegacyStaffRepair";
 import BranchForm from "../Admin/BranchForm";
 import UserForm from "../Admin/UserForm";
 import CompaniesForm from "../Admin/CompaniesForm";
@@ -64,6 +65,7 @@ const NAV_ITEMS = [
   //     { key: "BranchForm", label: "BranchForm", icon: <MdPeople /> },
   //     { key: "UserForm", label: "UserForm", icon: <MdPeople /> },
   //     { key: "CompaniesForm", label: "CompaniesForm", icon: <MdPeople /> },
+  //     { key: "LegacyStaffRepair", label: "LegacyStaffRepair", icon: <MdPeople /> },
   //   ],
   // },
   {
@@ -305,6 +307,7 @@ function AdminPanel() {
       case "ClientLoanBreakdown": return <ClientLoanBreakdown {...props} />;
       case "PaymentTrackingReport": return <PaymentTrackingReport {...props} />;
       case "StaffPerformanceReport": return <StaffPerformanceReport {...props} />;
+      case "LegacyStaffRepair": return <LegacyStaffRepair {...props} />;
       default: return <Dashboard branch={branch} />;
     }
   };

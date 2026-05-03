@@ -83,6 +83,7 @@ function ClientDetails({ branch }) { // Add branch to props
     const [clientId, setClientId] = useState('');
     const [registrationDate, setRegistrationDate] = useState(new Date().toISOString().slice(0, 10)); // Default to today's date
     const [staffName, setStaffName] = useState('');
+    const [staffId, setStaffId] = useState(''); // Added this
     const [fullName, setFullName] = useState('');
     const [gender, setGender] = useState('');
     const [dateOfBirth, setDateOfBirth] = useState('');
@@ -100,7 +101,7 @@ function ClientDetails({ branch }) { // Add branch to props
     const [photoUrl, setPhotoUrl] = useState('');
     const fileInputRef = useRef(null);
 
-  
+
 
     // NEW: State for local image preview URL and upload status
     const [imagePreviewUrl, setImagePreviewUrl] = useState('');
@@ -123,7 +124,7 @@ function ClientDetails({ branch }) { // Add branch to props
     const [staffLoading, setStaffLoading] = useState(true);
 
     // Define the PIN for delete confirmation.
-    const DELETE_PIN = "1234"; 
+    const DELETE_PIN = "1234";
 
     // Reference to the Firestore 'clients' collection
     const clientsCollectionRef = collection(db, "clients");
@@ -145,7 +146,7 @@ function ClientDetails({ branch }) { // Add branch to props
 
 
     // --- 2. EFFECT: RETRIEVE SESSION DATA (Branch & ShortCode) ---
-    
+
 
     // --- 3. EFFECT: REAL-TIME LISTENER (Filtered by Branch) ---
     useEffect(() => {
@@ -153,7 +154,7 @@ function ClientDetails({ branch }) { // Add branch to props
         setLoading(true);
 
         const q = query(clientsCollectionRef, where("branchId", "==", branchId));
-        
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedClients = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
             setClientList(fetchedClients);
@@ -166,20 +167,20 @@ function ClientDetails({ branch }) { // Add branch to props
     }, [branchId]);
 
     // --- 4. EFFECT: SEQUENTIAL ID GENERATION (Same as Staff logic) ---
-   useEffect(() => {
-    if (!branchId || editingClientId) return;
+    useEffect(() => {
+        if (!branchId || editingClientId) return;
 
-    const latestClientNumber = clientList.reduce((max, client) => {
-        const match = (client.clientId || "").match(/^pmcd-(\d+)$/i);
-        const num = match ? parseInt(match[1], 10) : 0;
-        return num > max ? num : max;
-    }, 0);
+        const latestClientNumber = clientList.reduce((max, client) => {
+            const match = (client.clientId || "").match(/^pmcd-(\d+)$/i);
+            const num = match ? parseInt(match[1], 10) : 0;
+            return num > max ? num : max;
+        }, 0);
 
-    const newNumber = latestClientNumber + 1;
-    const formattedId = `pmcd-${String(newNumber).padStart(2, '0')}`;
+        const newNumber = latestClientNumber + 1;
+        const formattedId = `pmcd-${String(newNumber).padStart(2, '0')}`;
 
-    setClientId(formattedId);
-}, [branchId, clientList, editingClientId]);
+        setClientId(formattedId);
+    }, [branchId, clientList, editingClientId]);
 
     // 1. **CRITICAL FIX**: Determine and set the Branch ID first.
     useEffect(() => {
@@ -215,7 +216,7 @@ function ClientDetails({ branch }) { // Add branch to props
         // **FIXED QUERY**: Use where to filter the Firestore collection by branchId.
         const clientsQuery = query(
             clientsCollectionRef,
-            where('branchId', '==', branchId) 
+            where('branchId', '==', branchId)
         );
 
         const unsubscribe = onSnapshot(clientsQuery, (snapshot) => {
@@ -223,7 +224,7 @@ function ClientDetails({ branch }) { // Add branch to props
                 ...doc.data(),
                 id: doc.id
             }));
-            
+
             setClientList(fetchedClients);
             setLoading(false);
 
@@ -250,19 +251,23 @@ function ClientDetails({ branch }) { // Add branch to props
         return () => unsubscribe();
     }, [branchId, editingClientId]); // Dependent on branchId and editingClientId
 
-    // 3. Fetch staff members filtered by branchId (already correct)
+    // --- Inside ClientDetails.jsx ---
+
     useEffect(() => {
-        if (!branchId) return; // Exit if branchId is not yet set
+        if (!branchId) return;
         setStaffLoading(true);
 
         const staffQuery = query(
             staffMembersCollectionRef,
-            where('branchId', '==', branchId) // Filter by branchId only
+            where('branchId', '==', branchId)
         );
 
         const unsubscribe = onSnapshot(staffQuery, (snapshot) => {
             const fetchedStaff = snapshot.docs.map((doc) => ({
-                id: doc.id,
+                // KEEP the firebase doc.id for the React 'key'
+                firebaseId: doc.id,
+                // FETCH the sequential custom ID
+                staffId: doc.data().staffId,
                 fullName: doc.data().fullName
             }));
 
@@ -271,19 +276,18 @@ function ClientDetails({ branch }) { // Add branch to props
             setStaffMembers(sortedStaff);
             setStaffLoading(false);
         }, (error) => {
-            console.error("Error fetching staff for branch:", error);
-            setError("Failed to load staff data for this branch.");
+            console.error("Error fetching staff:", error);
             setStaffLoading(false);
         });
 
-        return () => unsubscribe(); // Clean up on unmount or branchId change
-    }, [branchId]); // Run whenever branchId changes
+        return () => unsubscribe();
+    }, [branchId]);
 
     // Derived state: Filtered client list based on the search term (clientList is now already filtered by branchId)
     const filteredClients = clientList.filter(client =>
-        // Removed: client.branchId === branchId && // This is now redundant and harmless, but the Firestore query handles it faster
-        ((client.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (client.clientId || "").toLowerCase().includes(searchTerm.toLowerCase()))
+    // Removed: client.branchId === branchId && // This is now redundant and harmless, but the Firestore query handles it faster
+    ((client.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (client.clientId || "").toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
 
@@ -305,8 +309,10 @@ function ClientDetails({ branch }) { // Add branch to props
     }, [dateOfBirth]);
 
 
+
+
     // ... (Your handlePhotoImport, handleImportButtonClick, clearForm functions remain the same)
-    
+
     // Handle photo file selection and Cloudinary upload using fetch API
     const handlePhotoImport = async (event) => {
         const file = event.target.files[0];
@@ -355,6 +361,7 @@ function ClientDetails({ branch }) { // Add branch to props
     // Function to clear all form fields and reset to initial state for a new entry
     const clearForm = () => {
         setFullName('');
+        setStaffId(''); // ✅ reset
         setGender('');
         setDateOfBirth('');
         setAge('');
@@ -377,7 +384,7 @@ function ClientDetails({ branch }) { // Add branch to props
         setIsSaving(true); // Set saving state to true
 
         // Basic client-side validation for required fields
-        if (!fullName || !staffName || !branchId) {
+        if (!fullName || !staffId || !branchId) {
             alert("Please fill in all required fields.");
             setIsSaving(false);
             return;
@@ -388,6 +395,7 @@ function ClientDetails({ branch }) { // Add branch to props
             clientId, // This will be the sequential ID (e.g., cmcs-01)
             registrationDate,
             staffName,
+            staffId,     // ✅ NEW
             branchId, // Add the new field
             fullName,
             gender,
@@ -428,6 +436,7 @@ function ClientDetails({ branch }) { // Add branch to props
         setEditingClientId(client.id); // Set the Firestore document ID for update operations
         setClientId(client.clientId); // Populate with the existing sequential clientId
         setRegistrationDate(client.registrationDate);
+        setStaffId(client.staffId || '');     // ✅ important
         setStaffName(client.staffName);
         setBranchId(client.branchId || ''); // Populate the new Branch ID field
         setFullName(client.fullName);
@@ -492,7 +501,7 @@ function ClientDetails({ branch }) { // Add branch to props
                         {isOnline ? "✅ Online" : "⚠️ Offline"}
                     </span>
                 </div>
-                
+
                 {/* Branch ID Error Message */}
                 {error && (
                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
@@ -538,26 +547,30 @@ function ClientDetails({ branch }) { // Add branch to props
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <FaUser size={18} className="text-gray-400" />
                             </div>
-                            {staffLoading ? ( // Show loading message while fetching staff
-                                <div className="w-full p-2 pl-10 border border-gray-300 rounded-md bg-gray-50 text-gray-500">
-                                    Loading staff...
-                                </div>
-                            ) : (
-                                <select
-                                    id="staffName"
-                                    value={staffName}
-                                    onChange={(e) => setStaffName(e.target.value)}
-                                    className="w-full p-2 pl-10 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-colors duration-200"
-                                    disabled={staffMembers.length === 0}
-                                >
-                                    <option value="">{staffMembers.length === 0 ? "No staff found for this branch" : "Select Staff Member"}</option> 
-                                    {staffMembers.map((staff) => ( // Map through fetched staff members to create options
-                                        <option key={staff.id} value={staff.fullName}> 
-                                            {staff.fullName}
-                                        </option>
-                                    ))}
-                                </select>
-                            )}
+                            <select
+                                id="staffName"
+                                value={staffId} // This will now hold 'pmsd-01' instead of 'ABC123XYZ'
+                                onChange={(e) => {
+                                    const selected = staffMembers.find(s => s.staffId === e.target.value);
+
+                                    if (selected) {
+                                        setStaffId(selected.staffId);      // ✅ Stores 'pmsd-01'
+                                        setStaffName(selected.fullName);   // ✅ Stores 'John Doe'
+                                    } else {
+                                        setStaffId('');
+                                        setStaffName('');
+                                    }
+                                }}
+                                className="w-full p-2 pl-10 border border-gray-300 rounded-md"
+                            >
+                                <option value="">Select Staff Member</option>
+
+                                {staffMembers.map((staff) => (
+                                    <option key={staff.firebaseId} value={staff.staffId}>
+                                        {staff.fullName} ({staff.staffId})
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 
@@ -614,31 +627,6 @@ function ClientDetails({ branch }) { // Add branch to props
                     <Input id="telephone" label="Telephone" type="tel" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="+232-XXXXXXXX" icon={FaPhone} />
                     <Input id="address" label="Address" type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Freetown" icon={FaHome} />
 
-                    {/* Photo Section (Keep this commented out if you're not using it) */}
-                    {/* <div className="col-span-1 md:col-span-2 lg:col-span-3 flex flex-col items-center justify-center space-y-4 pt-4 border-t border-gray-200 mt-4">
-                        <h3 className="text-lg font-semibold text-gray-800">Client Photo</h3>
-                        <div className="w-32 h-32 rounded-full border-4 border-gray-300 flex items-center justify-center overflow-hidden bg-gray-200 relative">
-                            {imageUploading ? (
-                                <Spinner />
-                            ) : imagePreviewUrl ? (
-                                <img src={imagePreviewUrl} alt="Client Preview" className="w-full h-full object-cover" />
-                            ) : (
-                                <FaUser size={64} className="text-gray-400" />
-                            )}
-                        </div>
-                        <div className="flex justify-center">
-                            <Button onClick={handleImportButtonClick} disabled={imageUploading || isSaving}>
-                                {imageUploading ? 'Uploading...' : <><FaUpload size={18} className="mr-2" /> Import Photo</>}
-                            </Button>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handlePhotoImport}
-                                accept="image/*"
-                                className="hidden"
-                            />
-                        </div>
-                    </div> */}
 
                     {/* Submit Button */}
                     <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-6">
@@ -684,6 +672,9 @@ function ClientDetails({ branch }) { // Add branch to props
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">Full Name</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[100px]">Branch ID</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[100px]">Gender</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[120px]">
+                                            Staff ID
+                                        </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]">Staff Name</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]">Actions</th>
                                     </tr>
@@ -695,6 +686,9 @@ function ClientDetails({ branch }) { // Add branch to props
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{client.fullName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.branchId}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.gender}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {client.staffId}
+                                            </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.staffName}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                 <Button onClick={() => handleEdit(client)} className="bg-green-600 hover:bg-green-700 mr-2">

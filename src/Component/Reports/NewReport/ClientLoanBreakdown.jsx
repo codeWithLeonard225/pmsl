@@ -34,37 +34,48 @@ export default function ClientLoanBreakdown({ branch }) {
     }, [branchId]);
 
     // 3. Calculation Logic
-    const breakdown = useMemo(() => {
-        return loans.map(loan => {
-            const lId = loan.loanId;
-            const cId = loan.clientId;
+   const breakdown = useMemo(() => {
+    return loans.map(loan => {
+        const lId = loan.loanId;
+        const cId = loan.clientId;
 
-            const totalRepaid = payments
-                .filter(p => p.loanId === lId)
-                .reduce((sum, p) => sum + parseFloat(p.repaymentAmount || 0), 0);
+        // 1. Group and Sum Payments by loanId
+        const totalRepaid = payments
+            .filter(p => p.loanId === lId)
+            .reduce((sum, p) => sum + parseFloat(p.repaymentAmount || 0), 0);
 
-            const totalSavings = savings
-                .filter(s => s.clientId === cId)
-                .reduce((sum, s) => sum + parseFloat(s.compulsoryAmount || 0) + parseFloat(s.voluntarySavings || 0), 0);
+        // 2. Group and Sum Savings (Compulsory + Voluntary) by clientId
+        const totalSavings = savings
+            .filter(s => s.clientId === cId)
+            .reduce((sum, s) => {
+                const comp = parseFloat(s.compulsoryAmount || 0);
+                const vol = parseFloat(s.voluntarySavings || 0);
+                return sum + comp + vol;
+            }, 0);
 
-            const principal = parseFloat(loan.principal || 0);
-            const interestRate = parseFloat(loan.interestRate || 0);
-            const totalToPay = principal + (principal * interestRate / 100);
-            const currentBalance = totalToPay - totalRepaid;
-            const progress = (totalRepaid / totalToPay) * 100;
+        // 3. Principal and Interest Logic
+        const principal = parseFloat(loan.principal || 0);
+        const interestRate = parseFloat(loan.interestRate || 0);
+        
+        // Total Exposure = P + (P * I / 100)
+        const totalToPay = principal + (principal * (interestRate / 100));
+        
+        const currentBalance = totalToPay - totalRepaid;
+        const progress = totalToPay > 0 ? (totalRepaid / totalToPay) * 100 : 0;
 
-            return {
-                clientName: loan.clientName || "Unknown",
-                loanId: lId,
-                totalToPay,
-                totalRepaid,
-                totalSavings,
-                balance: currentBalance,
-                progress: progress > 100 ? 100 : progress,
-                status: currentBalance <= 0 ? "Settled" : "Active"
-            };
-        });
-    }, [loans, payments, savings]);
+        return {
+           clientName: loan.clientName || "Unknown",
+    loanId: lId,
+    clientId: cId, // Make sure this is included!
+            totalToPay,
+            totalRepaid,
+            totalSavings,
+            balance: currentBalance,
+            progress: progress > 100 ? 100 : progress,
+            status: currentBalance <= 0.01 ? "Settled" : "Active" // 0.01 handles tiny float rounding issues
+        };
+    });
+}, [loans, payments, savings]);
 
     const activeLoanCount = breakdown.filter(b => b.status === "Active").length;
 
@@ -104,36 +115,54 @@ export default function ClientLoanBreakdown({ branch }) {
                         <th style={styles.thRight}>Outstanding Balance</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {breakdown.map((item, idx) => (
-                        <tr key={idx} style={item.balance <= 0 ? styles.rowSettled : styles.row}>
-                            <td style={styles.td}>
-                                <div style={styles.clientBrand}>{item.clientName}</div>
-                                <div style={styles.smallId}>ID: {item.loanId}</div>
-                            </td>
-                            <td style={styles.tdRight}>
-                                <div style={styles.currency}>NLe {item.totalToPay.toLocaleString()}</div>
-                            </td>
-                            <td style={styles.tdRight}>
-                                <div style={styles.progressContainer}>
-                                    <div style={{...styles.progressBar, width: `${item.progress}%`, backgroundColor: item.progress === 100 ? '#27ae60' : '#2980b9'}} />
-                                </div>
-                                <div style={styles.progressText}>
-                                    {item.totalRepaid.toLocaleString()} repaid ({Math.round(item.progress)}%)
-                                </div>
-                            </td>
-                            <td style={styles.tdSavings}>
-                                NLe {item.totalSavings.toLocaleString()}
-                            </td>
-                            <td style={{ ...styles.tdRight, ...styles.balanceCell }}>
-                                <span style={item.balance <= 0 ? styles.settledText : styles.activeText}>
-                                    {item.balance <= 0 ? "CLEARED" : `NLe ${item.balance.toLocaleString()}`}
-                                </span>
-                                {item.balance <= 0 && <span style={styles.check}> ★</span>}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
+               <tbody>
+    {breakdown.map((item, idx) => (
+        <tr key={idx} style={item.balance <= 0 ? styles.rowSettled : styles.row}>
+            <td style={styles.td}>
+                {/* Client Name */}
+                <div style={styles.clientBrand}>{item.clientName}</div>
+                
+                {/* Meta IDs for Tracking */}
+                <div style={styles.idContainer}>
+                    <div style={styles.smallId}>
+                        <span style={styles.idLabel}>CLIENT ID:</span> {item.clientId}
+                    </div>
+                    <div style={styles.smallId}>
+                        <span style={styles.idLabel}>LOAN ID:</span> {item.loanId}
+                    </div>
+                </div>
+            </td>
+            
+            <td style={styles.tdRight}>
+                <div style={styles.currency}>NLe {item.totalToPay.toLocaleString()}</div>
+            </td>
+
+            <td style={styles.tdRight}>
+                <div style={styles.progressContainer}>
+                    <div style={{
+                        ...styles.progressBar, 
+                        width: `${item.progress}%`, 
+                        backgroundColor: item.progress === 100 ? '#27ae60' : '#2980b9'
+                    }} />
+                </div>
+                <div style={styles.progressText}>
+                    {item.totalRepaid.toLocaleString()} repaid ({Math.round(item.progress)}%)
+                </div>
+            </td>
+
+            <td style={styles.tdSavings}>
+                NLe {item.totalSavings.toLocaleString()}
+            </td>
+
+            <td style={{ ...styles.tdRight, ...styles.balanceCell }}>
+                <span style={item.balance <= 0 ? styles.settledText : styles.activeText}>
+                    {item.balance <= 0 ? "CLEARED" : `NLe ${item.balance.toLocaleString()}`}
+                </span>
+                {item.balance <= 0 && <span style={styles.check}> ★</span>}
+            </td>
+        </tr>
+    ))}
+</tbody>
             </table>
 
             {/* PRINT CSS */}
@@ -151,6 +180,25 @@ export default function ClientLoanBreakdown({ branch }) {
 
 const styles = {
     container: { padding: "30px", backgroundColor: "#fff", borderRadius: "12px", boxShadow: "0 4px 6px rgba(0,0,0,0.05)" },
+    idContainer: {
+        marginTop: "4px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px"
+    },
+    smallId: { 
+        fontSize: "10px", 
+        color: "#7f8c8d", 
+        fontFamily: "monospace",
+        display: "flex",
+        alignItems: "center"
+    },
+    idLabel: {
+        fontWeight: "bold",
+        color: "#aaa",
+        marginRight: "4px",
+        fontSize: "9px"
+    },
     noPrint: { display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' },
     printBtn: { padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
     header: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "30px", borderBottom: "3px solid #1a1a1a", paddingBottom: "15px" },

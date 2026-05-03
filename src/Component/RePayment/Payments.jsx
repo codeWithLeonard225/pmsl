@@ -77,6 +77,7 @@ function Payments({ branch }) {
     const [loanId, setLoanId] = useState('');
     const [clientId, setClientId] = useState('');
     const [fullName, setFullName] = useState('');
+    const [staffId, setStaffId] = useState('');
     const [staffName, setStaffName] = useState('');
     const [groupId, setGroupId] = useState('');
     const [groupName, setGroupName] = useState('');
@@ -125,6 +126,7 @@ function Payments({ branch }) {
     const clearLoanDependentFields = () => {
         setClientId('');
         setFullName('');
+        setStaffId('');
         setStaffName('');
         setGroupId('');
         setGroupName('');
@@ -267,6 +269,7 @@ function Payments({ branch }) {
 
                         // Populate form fields from loan data
                         setClientId(loanData.clientId || '');
+                        setStaffId(loanData.staffId || '');
                         setFullName(loanData.clientName || '');
                         setStaffName(loanData.staffName || '');
                         setGroupId(loanData.groupId || '');
@@ -470,6 +473,7 @@ function Payments({ branch }) {
             loanId,
             clientId,
             fullName,
+            staffId,
             staffName,
             groupId,
             groupName,
