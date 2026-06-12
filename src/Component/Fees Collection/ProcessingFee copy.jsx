@@ -4,442 +4,301 @@ import { collection, query, onSnapshot, where } from 'firebase/firestore';
 
 const printStyles = `
 @media print {
-    @page { size: landscape; margin: 20mm; }
-    body { font-family: Arial, sans-serif; font-size: 11px; }
+    @page { size: landscape; margin: 10mm; }
+    body { font-family: Arial, sans-serif; font-size: 10px; background: white; }
     .no-print { display: none !important; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #333; padding: 4px; text-align: center; }
-    th { background-color: #eee; }
-    .text-red-500 { color: #ef4444 !important; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #000; padding: 4px; text-align: center; }
+    th { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; }
+    .text-red-500 { color: #ef4444 !important; font-weight: bold; }
 }
 `;
 
 function FieldCollectionSheet({ branch }) {
     const [branchId, setBranchId] = useState('');
-     const [branchIdError, setBranchIdError] = useState(null);
-    const printAreaRef = useRef(null);
+    const [loans, setLoans] = useState([]);
     const [payments, setPayments] = useState([]);
     const [savings, setSavings] = useState([]);
+    const [loadingLoans, setLoadingLoans] = useState(true);
     const [loadingPayments, setLoadingPayments] = useState(true);
     const [loadingSavings, setLoadingSavings] = useState(true);
     const [error, setError] = useState(null);
     const [selectedStaff, setSelectedStaff] = useState('');
     const [selectedGroup, setSelectedGroup] = useState('');
-    const [loading, setLoading] = useState(true); // ADDED: General loading state
     const [clientDates, setClientDates] = useState({});
+    const printAreaRef = useRef(null);
 
+    // 1. Determine branchId
     useEffect(() => {
-        let id;
-        if (branch && branch.branchId) {
-            id = branch.branchId;
-        } else {
-            // Fallback: Check sessionStorage for branchId
-            id = sessionStorage.getItem("branchId");
-        }
-
-        if (id) {
-            setBranchId(id);
-            setBranchIdError(null);
-        } else {
-            // Error handling if branchId cannot be determined
-            setBranchIdError("Branch ID could not be determined. Please ensure you are logged in or the branch prop is provided.");
-            setLoading(false); 
-        }
+        let id = branch?.branchId || sessionStorage.getItem("branchId");
+        if (id) setBranchId(id);
     }, [branch]);
 
+    // 2. Real-time Listeners
     useEffect(() => {
-        if (!branchId) {
+        if (!branchId) return;
+
+        const loansQuery = query(collection(db, 'loans'), where('branchId', '==', branchId));
+        const unsubscribeLoans = onSnapshot(loansQuery, snapshot => {
+            setLoans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoadingLoans(false);
+        }, err => { setError("Failed to load loans."); setLoadingLoans(false); });
+
+        const paymentsQuery = query(collection(db, 'payments'), where('branchId', '==', branchId));
+        const unsubscribePayments = onSnapshot(paymentsQuery, snapshot => {
+            setPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoadingPayments(false);
+        }, err => { setError("Failed to load payments."); setLoadingPayments(false); });
+
+        const savingsQuery = query(collection(db, 'savings'), where('branchId', '==', branchId));
+        const unsubscribeSavings = onSnapshot(savingsQuery, snapshot => {
+            setSavings(snapshot.docs.map(doc => doc.data()));
             setLoadingSavings(false);
-            return;
-        }
-
-        const paymentsCollectionRef = collection(db, 'payments');
-        const paymentsQuery = query(
-            paymentsCollectionRef,
-            where('branchId', '==', branchId),
-        );
-        const unsubscribePayments = onSnapshot(
-            paymentsQuery,
-            snapshot => {
-                const fetchedPayments = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    let createdAt = null;
-                    if (data.createdAt) {
-                        createdAt = typeof data.createdAt.toDate === 'function'
-                            ? data.createdAt.toDate()
-                            : new Date(data.createdAt);
-                    }
-                    return { id: doc.id, ...data, createdAt };
-                });
-                setPayments(fetchedPayments);
-                setLoadingPayments(false);
-            },
-            err => {
-                console.error("Error fetching payments:", err);
-                setError("Failed to load payments.");
-                setLoadingPayments(false);
-            }
-        );
-
-        const savingsCollectionRef = collection(db, 'savings');
-        const savingsQuery = query(
-            savingsCollectionRef,
-            where('branchId', '==', branchId),
-        );
-        const unsubscribeSavings = onSnapshot(
-            savingsQuery,
-            snapshot => {
-                const fetchedSavings = snapshot.docs.map(doc => doc.data());
-                setSavings(fetchedSavings);
-                setLoadingSavings(false);
-            },
-            err => {
-                console.error("Error fetching savings:", err);
-                setError("Failed to load savings.");
-                setLoadingSavings(false);
-            }
-        );
+        }, err => { setError("Failed to load savings."); setLoadingSavings(false); });
 
         return () => {
+            unsubscribeLoans();
             unsubscribePayments();
             unsubscribeSavings();
         };
     }, [branchId]);
 
- const groupByClient = (payments, savings) => {
-    const groupedData = {};
+    // 3. Precise Metrics Calculation Logic
+    const calculateMetrics = (client, dateStr) => {
+        const targetDate = new Date(dateStr);
+        const lastPayDate = client.latestPaymentDate ? new Date(client.latestPaymentDate) : client.repaymentStartDate;
 
-    // Prepare savings lookup
-    const savingsLookup = savings.reduce((acc, current) => {
-        if (!acc[current.clientId]) {
-            acc[current.clientId] = { compulsoryAmount: 0, voluntarySavings: 0 };
-        }
-        acc[current.clientId].compulsoryAmount += current.compulsoryAmount || 0;
-        acc[current.clientId].voluntarySavings += current.voluntarySavings || 0;
-        return acc;
-    }, {});
+        if (!lastPayDate) return { expected: 0, overdue: 0 };
 
-    payments.forEach(payment => {
-        const {
-            clientId,
-            fullName,
-            actualAmount,
-            repaymentAmount,
-            date,
-            loanOutstanding,
-            staffName,
-            groupId,
-            groupName,
-            loanOutcome,
-            loanType,
-            loanId,
-        } = payment;
+        const diffTime = targetDate - lastPayDate;
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        const totalWeeksElapsed = Math.floor(diffDays / 7);
 
-        const paymentDate = new Date(date);
-        const key = `${clientId}-${groupId}-${loanId}`; // unique key per client loan
+        let expected = 0;
+        let overdue = 0;
 
-        if (!groupedData[key]) {
-            const clientSavings = savingsLookup[clientId] || {};
-            groupedData[key] = {
-                clientId,
-                fullName,
-                loanOutstanding: loanOutstanding || 0,
-                compSvgBal: clientSavings.compulsoryAmount || 0,
-                volSvgBal: clientSavings.voluntarySavings || 0,
-                repaymentCount: 0,
-                actualAmount: actualAmount || 0,
-                totalRepaymentSoFar: 0,
-                latestPaymentDate: paymentDate,
-                firstPaymentDate: paymentDate, // track first payment
-                staffName,
-                groupId,
-                groupName,
-                loanId,
-                loanProduct: [loanOutcome, loanType].filter(Boolean).join(" - "),
-                repaymentAmount: repaymentAmount || 0, // store regular repayment
-            };
+        if (totalWeeksElapsed <= 0) {
+            expected = 0;
+            overdue = 0;
+        } else if (totalWeeksElapsed === 1) {
+            expected = client.weeklyRate || 0;
+            overdue = 0;
         } else {
-            // Update first and latest payment dates
-            if (paymentDate < groupedData[key].firstPaymentDate) {
-                groupedData[key].firstPaymentDate = paymentDate;
-            }
-            if (paymentDate > groupedData[key].latestPaymentDate) {
-                groupedData[key].latestPaymentDate = paymentDate;
-                groupedData[key].actualAmount = actualAmount || 0; // latest actual
-            }
+            expected = client.weeklyRate || 0;
+            overdue = (totalWeeksElapsed - 1) * (client.weeklyRate || 0);
         }
 
-        groupedData[key].repaymentCount += 1;
-        groupedData[key].totalRepaymentSoFar += repaymentAmount || 0;
-    });
+        return { expected, overdue };
+    };
 
-    return Object.values(groupedData);
-};
+    // 4. Data Merging & True Running Balances Engine
+    const buildLoanReport = (loans, payments, savings) => {
+        const paymentMap = {};
+        payments.forEach(p => {
+            if (!p.loanId) return;
+            if (!paymentMap[p.loanId]) paymentMap[p.loanId] = [];
+            paymentMap[p.loanId].push(p);
+        });
 
+        const savingsLookup = savings.reduce((acc, s) => {
+            if (!acc[s.clientId]) acc[s.clientId] = { comp: 0, vol: 0 };
+            acc[s.clientId].comp += s.compulsoryAmount || 0;
+            acc[s.clientId].vol += s.voluntarySavings || 0;
+            return acc;
+        }, {});
 
+        return loans.map(loan => {
+            const loanPayments = paymentMap[loan.loanId] || [];
+            
+            let totalRepayment = 0;
+            let latestPaymentDate = null;
+            let weeklyRate = 0;
+            let runningOutstanding = parseFloat(loan.principal || 0);
 
-    let finalReportData = groupByClient(payments, savings);
+            // Sort payments chronically to trace the true latest balance accurately
+            const sortedPayments = [...loanPayments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    if (selectedStaff) {
-        finalReportData = finalReportData.filter(c => c.staffName === selectedStaff);
-    }
-    if (selectedGroup) {
-        finalReportData = finalReportData.filter(c => `${c.groupName} (${c.groupId})` === selectedGroup);
-    }
+            sortedPayments.forEach(p => {
+                totalRepayment += p.repaymentAmount || 0;
+                const pDate = new Date(p.date);
+                
+                // Track latest details dynamically matching ClientReport.jsx setup
+                if (!latestPaymentDate || pDate > latestPaymentDate) {
+                    latestPaymentDate = pDate;
+                    weeklyRate = p.actualAmount || weeklyRate;
+                    // Fall back cleanly if snapshot fields vary down-chain
+                    if (p.loanOutstanding !== undefined) {
+                        runningOutstanding = parseFloat(p.loanOutstanding);
+                    }
+                }
+            });
 
-    const uniqueStaff = [...new Set(payments.map(p => p.staffName).filter(Boolean))];
-    const uniqueGroups = [...new Set(payments.map(p => `${p.groupName} (${p.groupId})`).filter(Boolean))];
+            // If no collections found, fall back safely to base calculation structures
+            if (weeklyRate === 0) {
+                const totalPrincipal = parseFloat(loan.principal || 0);
+                const interest = totalPrincipal * ((loan.interestRate || 0) / 100);
+                const totalToPay = totalPrincipal + interest;
+                weeklyRate = totalToPay / (parseInt(loan.paymentWeeks) || 1);
+            }
+
+            const clientSavings = savingsLookup[loan.clientId] || { comp: 0, vol: 0 };
+
+            return {
+                clientId: loan.clientId,
+                fullName: loan.clientName || loan.fullName,
+                staffName: loan.staffName,
+                groupId: loan.groupId,
+                groupName: loan.groupName,
+                loanId: loan.loanId,
+                loanProduct: [loan.loanOutcome, loan.loanType].filter(Boolean).join(" - "),
+                loanOutstanding: runningOutstanding, 
+                compSavingsBal: clientSavings.comp,
+                volSavingsBal: clientSavings.vol,
+                repaymentCount: loanPayments.length, 
+                totalRepaymentSoFar: totalRepayment,
+                weeklyRate: weeklyRate,
+                latestPaymentDate: latestPaymentDate,
+                repaymentStartDate: loan.repaymentStartDate ? new Date(loan.repaymentStartDate) : null,
+            };
+        });
+    };
+
+    const finalReportData = buildLoanReport(loans, payments, savings).map(client => ({
+        ...client,
+        isFullyPaid: client.loanOutstanding <= 0 && client.repaymentCount > 0,
+    }));
+
+    const filteredReportData = finalReportData
+        .filter(c => !c.isFullyPaid)
+        .filter(c => !selectedStaff || c.staffName === selectedStaff)
+        .filter(c => !selectedGroup || `${c.groupName} (${c.groupId})` === selectedGroup);
+
+    const uniqueStaff = [...new Set(loans.map(l => l.staffName).filter(Boolean))];
+    const uniqueGroups = [...new Set(loans.map(l => `${l.groupName} (${l.groupId})`).filter(Boolean))];
 
     const handlePrint = () => {
         const printContents = printAreaRef.current.innerHTML;
         const iframe = document.createElement('iframe');
-        iframe.style.position = 'absolute';
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
         iframe.style.width = '0';
         iframe.style.height = '0';
         iframe.style.border = '0';
         document.body.appendChild(iframe);
-
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         doc.open();
-        doc.write(`
-            <html>
-                <head>
-                    <title>Field Collection Sheet</title>
-                    <style>${printStyles}</style>
-                </head>
-                <body>${printContents}</body>
-            </html>
-        `);
+        doc.write(`<html><head><title>Field Collection</title><style>${printStyles}</style></head><body>${printContents}</body></html>`);
         doc.close();
-
         iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-        setTimeout(() => document.body.removeChild(iframe), 1000);
+        setTimeout(() => {
+            iframe.contentWindow.print();
+            document.body.removeChild(iframe);
+        }, 500);
     };
 
-    const getCurrentDate = () => new Date().toLocaleDateString();
-    const isLoading = loadingPayments || loadingSavings;
-
-   const calculateClientMetrics = (client, dateString) => {
-    const calculationDate = new Date(dateString);
-    let expectedPayment = 0;
-    let overdueAmount = 0;
-    let months = 0;
-
-    if (client.firstPaymentDate) {
-        const start = client.firstPaymentDate;
-
-        // Calculate weeks due
-        const diffTime = calculationDate - start;
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        const weeksDue = diffDays > 0 ? diffDays / 7 : 0;
-
-        expectedPayment = weeksDue * (client.actualAmount || 0);
-        overdueAmount = Math.max(0, expectedPayment - (client.totalRepaymentSoFar || 0));
-
-        // Optional: calculate months since first payment
-        months = (calculationDate.getFullYear() - start.getFullYear()) * 12 +
-                 (calculationDate.getMonth() - start.getMonth());
-        months = months <= 0 ? 0 : months;
-    }
-
-    return { expectedPayment, overdueAmount, months };
-};
-
-
-    const clientMetrics = finalReportData.reduce((acc, client) => {
-        const calculationDate = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
-        acc[client.clientId] = calculateClientMetrics(client, calculationDate);
-        return acc;
-    }, {});
-
+    const isLoading = loadingPayments || loadingSavings || loadingLoans;
 
     return (
-        <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
-            <style>{printStyles}</style>
-            <div className="bg-white rounded-xl shadow-lg p-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-2 no-print">Field Collection Sheet</h1>
-
-                <div className="no-print mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div className="flex items-center space-x-2">
-                        <label className="font-medium text-gray-700">Staff:</label>
-                        <select
-                            value={selectedStaff}
-                            onChange={e => setSelectedStaff(e.target.value)}
-                            className="px-3 py-2 border rounded-md"
-                        >
-                            <option value="">All</option>
-                            {uniqueStaff.map(staff => (
-                                <option key={staff} value={staff}>{staff}</option>
-                            ))}
+        <div className="container mx-auto p-4 bg-gray-50 min-h-screen font-sans">
+            <div className="bg-white rounded-lg shadow-md p-6 no-print mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <h1 className="text-2xl font-bold text-gray-800">Field Collection Sheet</h1>
+                    <div className="flex gap-4">
+                        <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="border rounded p-2 text-sm">
+                            <option value="">All Staff</option>
+                            {uniqueStaff.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                        <label className="font-medium text-gray-700">Group:</label>
-                        <select
-                            value={selectedGroup}
-                            onChange={e => setSelectedGroup(e.target.value)}
-                            className="px-3 py-2 border rounded-md"
-                        >
-                            <option value="">All</option>
-                            {uniqueGroups.map(group => (
-                                <option key={group} value={group}>{group}</option>
-                            ))}
+                        <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="border rounded p-2 text-sm">
+                            <option value="">All Groups</option>
+                            {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
-                    </div>
-
-                    <button
-                        onClick={handlePrint}
-                        className="px-6 py-2 bg-green-600 text-white font-medium rounded-md shadow-md hover:bg-green-700 transition-colors duration-200"
-                    >
-                        Print Report
-                    </button>
-                </div>
-
-                <div id="printArea" ref={printAreaRef}>
-                    <p className="text-sm text-gray-600 mb-2">Printed on: {getCurrentDate()}</p>
-                    <hr className="mb-4" />
-
-                    <div className="mb-4">
-                        <h2 className="font-semibold">Branch ID: {branchId}</h2>
-                        <h2 className="font-semibold">Loan Officer: {selectedStaff || 'All'}</h2>
-                        <h2 className="font-semibold">Group Name: {selectedGroup || 'All'}</h2>
-                    </div>
-
-                    {isLoading ? (
-                        <div className="text-center py-4 text-gray-500">Loading...</div>
-                    ) : error ? (
-                        <div className="text-center py-4 text-red-500">{error}</div>
-                    ) : (
-                        <table className="w-full border-collapse border border-gray-300 text-sm">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="border p-2">Client ID</th>
-                                    <th className="border p-2">Client Name</th>
-                                    <th className="border p-2">Comp Svg Bal</th>
-                                    <th className="border p-2">Vol Svg Bal</th>
-                                    <th className="border p-2">Total Bal</th>
-                                    <th className="border p-2">Comp Svg Col</th>
-                                    <th className="border p-2">Vol Col</th>
-                                    <th className="border p-2">Loan Prod</th>
-                                    <th className="border p-2">Latest Payment Date</th>
-                                    <th className="border p-2">Rpyt count</th>
-                                    <th className="border p-2">Repayment Amount</th>
-                                    <th className="border p-2">Loan Outstanding</th>
-                                    <th className="border p-2">Total Repayment So Far</th>
-                                    <th className="border p-2">
-                                        <div className="flex flex-col items-center">
-                                            <span>Expected Payment</span>
-                                            <span className="no-print text-xs">(Set Date)</span>
-                                        </div>
-                                    </th>
-                                    <th className="border p-2">
-                                        <div className="flex flex-col items-center">
-                                            <span>Overdue Amount</span>
-                                            <span className="no-print text-xs">(Set Date)</span>
-                                        </div>
-                                    </th>
-                                    <th className="border p-2">
-                                        <div className="flex flex-col items-center">
-                                            <span>Realise Amount</span>
-                                            <span className="no-print text-xs">(Set Date)</span>
-                                        </div>
-                                    </th>
-                                    <th className="border p-2 no-print">Calculation Date</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {finalReportData.length > 0 ? (
-                                    finalReportData.map(client => {
-                                        const calculationDate = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
-                                        const { expectedPayment, overdueAmount, months } = calculateClientMetrics(client, calculationDate);
-
-                                        return (
-                                            <tr key={client.loanId}>
-                                                <td className="border p-2">{client.clientId}</td>
-                                                <td className="border p-2">{client.fullName}</td>
-                                                <td className="border p-2">SLE {(client.compSvgBal || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(client.volSvgBal || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {((client.compSvgBal || 0) + (client.volSvgBal || 0)).toFixed(2)}</td>
-                                                <td className="border p-2"></td>
-                                                <td className="border p-2"></td>
-                                                <td className="border p-2">{client.loanProduct}</td>
-                                                <td className="border p-2">{client.latestPaymentDate.toLocaleDateString()}</td>
-                                                <td className="border p-2">{client.repaymentCount}</td>
-                                                <td className="border p-2">SLE {(client.actualAmount || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(client.loanOutstanding || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(client.totalRepaymentSoFar || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(expectedPayment || 0).toFixed(2)}</td>
-                                                <td className={`border p-2 ${overdueAmount > 0 ? 'text-red-500' : ''}`}>
-                                                    SLE {(overdueAmount || 0).toFixed(2)}
-                                                </td>
-                                                <td className="border p-2"> </td>
-                                                <td className="border p-2 no-print">
-                                                    <input
-                                                        type="date"
-                                                        value={calculationDate}
-                                                        onChange={e => setClientDates({
-                                                            ...clientDates,
-                                                            [client.clientId]: e.target.value
-                                                        })}
-                                                        className="w-full"
-                                                    />
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan="17" className="text-center p-4 text-gray-500">No data available</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                            <tfoot className="bg-gray-200 font-semibold">
-                                <tr>
-                                    <td className="border p-2 text-left" colSpan="2">
-                                        No. of Clients: {finalReportData.length}
-                                    </td>
-                                    <td className="border p-2" colSpan="3"></td>
-                                    <td className="border p-2" colSpan="2"></td>
-                                    <td className="border p-2" colSpan="2"></td>
-                                    <td className="border p-2" colSpan="1"></td>
-                                    <td className="border p-2"></td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (c.repaymentAmount || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (c.loanOutstanding || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (c.totalRepaymentSoFar || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (clientMetrics[c.clientId].expectedPayment || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (clientMetrics[c.clientId].overdueAmount || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2"></td>
-                                    <td className="border p-2"></td>
-                                    <td className="border p-2 no-print"></td>
-                                </tr>
-                            </tfoot>
-
-                        </table>
-                    )}
-                    <div className="mt-10 text-sm">
-                        <p className="mb-2">
-                            CO's Signature ...............................................
-                            BM's Signature ...............................................
-                            Date: ...............................................
-                        </p>
-                        <p className="font-semibold mt-10">
-                            Total Collection: ...............................................
-                        </p>
+                        <button onClick={handlePrint} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Print Sheet</button>
                     </div>
                 </div>
+            </div>
+
+            <div id="printArea" ref={printAreaRef} className="bg-white p-4 rounded shadow">
+                <div className="mb-4 text-center">
+                    <h2 className="text-xl font-bold underline">FIELD COLLECTION REPORT</h2>
+                    <div className="flex justify-between text-xs mt-2 px-4">
+                        <span><strong>Staff:</strong> {selectedStaff || 'All'}</span>
+                        <span><strong>Group:</strong> {selectedGroup || 'All'}</span>
+                        <span><strong>Date:</strong> {new Date().toLocaleDateString()}</span>
+                    </div>
+                </div>
+
+                {isLoading ? (
+                    <div className="text-center py-10 text-gray-400">Updating records...</div>
+                ) : error ? (
+                    <div className="text-center py-4 text-red-600 bg-red-50 rounded border border-red-200">{error}</div>
+                ) : (
+                    <table className="w-full text-[11px] border-collapse">
+                <thead>
+                    <tr className="bg-gray-100">
+                        <th className="border">Client ID</th>
+                        <th className="border">Name</th>
+                        <th className="border">Savings Balance</th>
+                        <th className="border">Loan Product</th>
+                        <th className="border">Last Pay Date</th>
+                        <th className="border">Weeks Paid</th>
+                        <th className="border">Weekly Rate</th>
+                        <th className="border">Outstanding Bal</th>
+                        <th className="border">Total Paid</th>
+                        <th className="border">Expected</th>
+                        <th className="border">Overdue</th>
+                        <th className="border p-2">Realise Amount</th>
+                        <th className="border no-print">Calc Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {filteredReportData.map(client => {
+                        const rowDateStr = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
+                        const metrics = calculateMetrics(client, rowDateStr);
+
+                        // 🌟 EXACT REPLICATED CALCULATION LOGIC 🌟
+                        const actualAmount = client.weeklyRate || 0;
+                        const totalRepaymentSoFar = client.totalRepaymentSoFar || 0;
+                        
+                        const weeksPaid = (actualAmount !== 0) 
+                            ? totalRepaymentSoFar / actualAmount 
+                            : 0;
+
+                        return (
+                            <tr key={client.loanId}>
+                                <td className="border p-1">{client.clientId}</td>
+                                <td className="border p-1 text-left">{client.fullName}</td>
+                                <td className="border p-1">{(client.compSavingsBal + client.volSavingsBal).toFixed(2)}</td>
+                                <td className="border p-1">{client.loanProduct}</td>
+                                <td className="border p-1">
+                                    {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
+                                </td>
+                                {/* Displays rounded value with "week/s" label exactly like ClientReport */}
+                                <td className="border p-1 font-semibold text-gray-700">
+                                    {Math.round(weeksPaid)} week/s
+                                </td>
+                                <td className="border p-1">SLE {client.weeklyRate.toFixed(2)}</td>
+                                <td className="border p-1 font-semibold text-indigo-700">SLE {client.loanOutstanding.toFixed(2)}</td>
+                                <td className="border p-1 text-emerald-700">SLE {client.totalRepaymentSoFar.toFixed(2)}</td>
+                                <td className="border p-1 font-semibold text-gray-800">SLE {metrics.expected.toFixed(2)}</td>
+                                <td className={`border p-1 font-bold ${metrics.overdue > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                    SLE {metrics.overdue.toFixed(2)}
+                                </td>
+                                <td className="border p-2"> </td>
+                                <td className="border p-1 no-print">
+                                    <input
+                                        type="date"
+                                        value={rowDateStr}
+                                        className="border rounded text-[10px] p-0.5"
+                                        onChange={e => setClientDates({ ...clientDates, [client.clientId]: e.target.value })}
+                                    />
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+                )}
             </div>
         </div>
     );

@@ -66,9 +66,6 @@ function FieldCollectionSheet({ branch }) {
     // 3. Precise Metrics Calculation Logic
     const calculateMetrics = (client, dateStr) => {
         const targetDate = new Date(dateStr);
-        
-        // Use the date established for the "Last Pay" column
-        // If they haven't paid, use repaymentStartDate
         const lastPayDate = client.latestPaymentDate ? new Date(client.latestPaymentDate) : client.repaymentStartDate;
 
         if (!lastPayDate) return { expected: 0, overdue: 0 };
@@ -87,19 +84,18 @@ function FieldCollectionSheet({ branch }) {
             expected = client.weeklyRate || 0;
             overdue = 0;
         } else {
-            // Expected is the current week's installment
             expected = client.weeklyRate || 0;
-            // Overdue is all weeks prior to the current one
             overdue = (totalWeeksElapsed - 1) * (client.weeklyRate || 0);
         }
 
         return { expected, overdue };
     };
 
-    // 4. Data Merging
+    // 4. Data Merging & True Running Balances Engine
     const buildLoanReport = (loans, payments, savings) => {
         const paymentMap = {};
         payments.forEach(p => {
+            if (!p.loanId) return;
             if (!paymentMap[p.loanId]) paymentMap[p.loanId] = [];
             paymentMap[p.loanId].push(p);
         });
@@ -113,20 +109,31 @@ function FieldCollectionSheet({ branch }) {
 
         return loans.map(loan => {
             const loanPayments = paymentMap[loan.loanId] || [];
+            
             let totalRepayment = 0;
             let latestPaymentDate = null;
             let weeklyRate = 0;
+            let runningOutstanding = parseFloat(loan.principal || 0);
 
-            loanPayments.forEach(p => {
+            // Sort payments chronically to trace the true latest balance accurately
+            const sortedPayments = [...loanPayments].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            sortedPayments.forEach(p => {
                 totalRepayment += p.repaymentAmount || 0;
                 const pDate = new Date(p.date);
+                
+                // Track latest details dynamically matching ClientReport.jsx setup
                 if (!latestPaymentDate || pDate > latestPaymentDate) {
                     latestPaymentDate = pDate;
-                    weeklyRate = p.actualAmount || 0; // The actual installment set in payment
+                    weeklyRate = p.actualAmount || weeklyRate;
+                    // Fall back cleanly if snapshot fields vary down-chain
+                    if (p.loanOutstanding !== undefined) {
+                        runningOutstanding = parseFloat(p.loanOutstanding);
+                    }
                 }
             });
 
-            // If no payments yet, determine weeklyRate from loan principal/weeks
+            // If no collections found, fall back safely to base calculation structures
             if (weeklyRate === 0) {
                 const totalPrincipal = parseFloat(loan.principal || 0);
                 const interest = totalPrincipal * ((loan.interestRate || 0) / 100);
@@ -144,13 +151,13 @@ function FieldCollectionSheet({ branch }) {
                 groupName: loan.groupName,
                 loanId: loan.loanId,
                 loanProduct: [loan.loanOutcome, loan.loanType].filter(Boolean).join(" - "),
-                loanOutstanding: parseFloat(loan.principal || 0),
-                compSvgBal: clientSavings.comp,
-                volSvgBal: clientSavings.vol,
-                repaymentCount: loanPayments.length,
+                loanOutstanding: runningOutstanding, 
+                compSavingsBal: clientSavings.comp,
+                volSavingsBal: clientSavings.vol,
+                repaymentCount: loanPayments.length, 
                 totalRepaymentSoFar: totalRepayment,
                 weeklyRate: weeklyRate,
-                latestPaymentDate: latestPaymentDate, 
+                latestPaymentDate: latestPaymentDate,
                 repaymentStartDate: loan.repaymentStartDate ? new Date(loan.repaymentStartDate) : null,
             };
         });
@@ -158,7 +165,7 @@ function FieldCollectionSheet({ branch }) {
 
     const finalReportData = buildLoanReport(loans, payments, savings).map(client => ({
         ...client,
-        isFullyPaid: client.totalRepaymentSoFar >= client.loanOutstanding && client.repaymentCount > 0,
+        isFullyPaid: client.loanOutstanding <= 0 && client.repaymentCount > 0,
     }));
 
     const filteredReportData = finalReportData
@@ -223,59 +230,74 @@ function FieldCollectionSheet({ branch }) {
 
                 {isLoading ? (
                     <div className="text-center py-10 text-gray-400">Updating records...</div>
+                ) : error ? (
+                    <div className="text-center py-4 text-red-600 bg-red-50 rounded border border-red-200">{error}</div>
                 ) : (
                     <table className="w-full text-[11px] border-collapse">
-                        <thead>
-                            <tr className="bg-gray-100">
-                                <th className="border">Client ID</th>
-                                <th className="border">Name</th>
-                                <th className="border">Savings</th>
-                                <th className="border">Loan Product</th>
-                                <th className="border">Last Pay</th>
-                                <th className="border">Count</th>
-                                <th className="border">Weekly Rate</th>
-                                <th className="border">Outstanding</th>
-                                <th className="border">Total Paid</th>
-                                <th className="border">Expected</th>
-                                <th className="border">Overdue</th>
-                                <th className="border no-print">Calc Date</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredReportData.map(client => {
-                                const rowDateStr = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
-                                const metrics = calculateMetrics(client, rowDateStr);
+                <thead>
+                    <tr className="bg-gray-100">
+                        <th className="border">Client ID</th>
+                        <th className="border">Name</th>
+                        <th className="border">Savings Balance</th>
+                        <th className="border">Loan Product</th>
+                        <th className="border">Last Pay Date</th>
+                        <th className="border">Weeks Paid</th>
+                        <th className="border">Weekly Rate</th>
+                        <th className="border">Outstanding Bal</th>
+                        <th className="border">Total Paid</th>
+                        <th className="border">Expected</th>
+                        <th className="border">Overdue</th>
+                        <th className="border p-2">Realise Amount</th>
+                        <th className="border no-print">Calc Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {filteredReportData.map(client => {
+                        const rowDateStr = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
+                        const metrics = calculateMetrics(client, rowDateStr);
 
-                                return (
-                                    <tr key={client.loanId}>
-                                        <td className="border p-1">{client.clientId}</td>
-                                        <td className="border p-1 text-left">{client.fullName}</td>
-                                        <td className="border p-1">{(client.compSvgBal + client.volSvgBal).toFixed(2)}</td>
-                                        <td className="border p-1">{client.loanProduct}</td>
-                                        <td className="border p-1">
-                                            {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
-                                        </td>
-                                        <td className="border p-1">{client.repaymentCount}</td>
-                                        <td className="border p-1">{client.weeklyRate.toFixed(2)}</td>
-                                        <td className="border p-1">{client.loanOutstanding.toFixed(2)}</td>
-                                        <td className="border p-1">{client.totalRepaymentSoFar.toFixed(2)}</td>
-                                        <td className="border p-1 font-semibold">{metrics.expected.toFixed(2)}</td>
-                                        <td className={`border p-1 font-bold ${metrics.overdue > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                            {metrics.overdue.toFixed(2)}
-                                        </td>
-                                        <td className="border p-1 no-print">
-                                            <input 
-                                                type="date" 
-                                                value={rowDateStr}
-                                                className="border rounded text-[10px]"
-                                                onChange={e => setClientDates({ ...clientDates, [client.clientId]: e.target.value })}
-                                            />
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                        // 🌟 EXACT REPLICATED CALCULATION LOGIC 🌟
+                        const actualAmount = client.weeklyRate || 0;
+                        const totalRepaymentSoFar = client.totalRepaymentSoFar || 0;
+                        
+                        const weeksPaid = (actualAmount !== 0) 
+                            ? totalRepaymentSoFar / actualAmount 
+                            : 0;
+
+                        return (
+                            <tr key={client.loanId}>
+                                <td className="border p-1">{client.clientId}</td>
+                                <td className="border p-1 text-left">{client.fullName}</td>
+                                <td className="border p-1">{(client.compSavingsBal + client.volSavingsBal).toFixed(2)}</td>
+                                <td className="border p-1">{client.loanProduct}</td>
+                                <td className="border p-1">
+                                    {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
+                                </td>
+                                {/* Displays rounded value with "week/s" label exactly like ClientReport */}
+                                <td className="border p-1 font-semibold text-gray-700">
+                                    {Math.round(weeksPaid)} week/s
+                                </td>
+                                <td className="border p-1">SLE {client.weeklyRate.toFixed(2)}</td>
+                                <td className="border p-1 font-semibold text-indigo-700">SLE {client.loanOutstanding.toFixed(2)}</td>
+                                <td className="border p-1 text-emerald-700">SLE {client.totalRepaymentSoFar.toFixed(2)}</td>
+                                <td className="border p-1 font-semibold text-gray-800">SLE {metrics.expected.toFixed(2)}</td>
+                                <td className={`border p-1 font-bold ${metrics.overdue > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                    SLE {metrics.overdue.toFixed(2)}
+                                </td>
+                                <td className="border p-2"> </td>
+                                <td className="border p-1 no-print">
+                                    <input
+                                        type="date"
+                                        value={rowDateStr}
+                                        className="border rounded text-[10px] p-0.5"
+                                        onChange={e => setClientDates({ ...clientDates, [client.clientId]: e.target.value })}
+                                    />
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
                 )}
             </div>
         </div>

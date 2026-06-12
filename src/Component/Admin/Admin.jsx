@@ -54,20 +54,20 @@ import StaffPerformanceReport from "../Reports/NewReport/StaffPerformanceReport"
 
 // --- NAV ITEMS ---
 const NAV_ITEMS = [
-  // {
-  //   key: "trialBalance",
-  //   label: "Trail Balance",
-  //   icon: <MdEdit />,
-  //   children: [
-  //     { key: "actualExpences", label: "Actual Expenses", icon: <MdPerson /> },
-  //     { key: "officeRentPrepaid", label: "OfficeRentPrepaid", icon: <MdPeople /> },
-  //     { key: "trialBalance", label: "TrialBalance", icon: <MdPeople /> },
-  //     { key: "BranchForm", label: "BranchForm", icon: <MdPeople /> },
-  //     { key: "UserForm", label: "UserForm", icon: <MdPeople /> },
-  //     { key: "CompaniesForm", label: "CompaniesForm", icon: <MdPeople /> },
-  //     { key: "LegacyStaffRepair", label: "LegacyStaffRepair", icon: <MdPeople /> },
-  //   ],
-  // },
+  {
+    key: "trialBalance",
+    label: "Trail Balance",
+    icon: <MdEdit />,
+    children: [
+      { key: "actualExpences", label: "Actual Expenses", icon: <MdPerson /> },
+      { key: "officeRentPrepaid", label: "OfficeRentPrepaid", icon: <MdPeople /> },
+      { key: "trialBalance", label: "TrialBalance", icon: <MdPeople /> },
+      { key: "BranchForm", label: "BranchForm", icon: <MdPeople /> },
+      { key: "UserForm", label: "UserForm", icon: <MdPeople /> },
+      { key: "CompaniesForm", label: "CompaniesForm", icon: <MdPeople /> },
+      { key: "LegacyStaffRepair", label: "LegacyStaffRepair", icon: <MdPeople /> },
+    ],
+  },
   {
     key: "forms",
     label: "Forms",
