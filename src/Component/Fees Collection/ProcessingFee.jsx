@@ -238,7 +238,8 @@ function FieldCollectionSheet({ branch }) {
                     <tr className="bg-gray-100">
                         <th className="border">Client ID</th>
                         <th className="border">Name</th>
-                        <th className="border">Savings Balance</th>
+                        <th className="border">Total Sav</th>
+                        <th className="border"> Savings</th>
                         <th className="border">Loan Product</th>
                         <th className="border">Last Pay Date</th>
                         <th className="border">Weeks Paid</th>
@@ -269,6 +270,7 @@ function FieldCollectionSheet({ branch }) {
                                 <td className="border p-1">{client.clientId}</td>
                                 <td className="border p-1 text-left">{client.fullName}</td>
                                 <td className="border p-1">{(client.compSavingsBal + client.volSavingsBal).toFixed(2)}</td>
+                                <td className="border p-2"></td>
                                 <td className="border p-1">{client.loanProduct}</td>
                                 <td className="border p-1">
                                     {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
