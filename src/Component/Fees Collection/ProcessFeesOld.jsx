@@ -27,6 +27,7 @@ function FieldCollectionSheet({ branch }) {
     const [selectedGroup, setSelectedGroup] = useState('');
     const [clientDates, setClientDates] = useState({});
     const printAreaRef = useRef(null);
+    const [selectedProduct, setSelectedProduct] = useState(''); // New State
 
     // 1. Determine branchId
     useEffect(() => {
@@ -154,7 +155,7 @@ function FieldCollectionSheet({ branch }) {
                 loanOutstanding: runningOutstanding, 
                 compSavingsBal: clientSavings.comp,
                 volSavingsBal: clientSavings.vol,
-                repaymentCount: loanPayments.length, // Correct localized incremental step mapping 
+                repaymentCount: loanPayments.length, 
                 totalRepaymentSoFar: totalRepayment,
                 weeklyRate: weeklyRate,
                 latestPaymentDate: latestPaymentDate,
@@ -171,10 +172,12 @@ function FieldCollectionSheet({ branch }) {
     const filteredReportData = finalReportData
         .filter(c => !c.isFullyPaid)
         .filter(c => !selectedStaff || c.staffName === selectedStaff)
-        .filter(c => !selectedGroup || `${c.groupName} (${c.groupId})` === selectedGroup);
+        .filter(c => !selectedGroup || `${c.groupName} (${c.groupId})` === selectedGroup)
+        .filter(c => !selectedProduct || c.loanProduct === selectedProduct); // New Filter
 
     const uniqueStaff = [...new Set(loans.map(l => l.staffName).filter(Boolean))];
     const uniqueGroups = [...new Set(loans.map(l => `${l.groupName} (${l.groupId})`).filter(Boolean))];
+    const uniqueProducts = [...new Set(loans.map(l => [l.loanOutcome, l.loanType].filter(Boolean).join(" - ")).filter(Boolean))];
 
     const handlePrint = () => {
         const printContents = printAreaRef.current.innerHTML;
@@ -213,6 +216,10 @@ function FieldCollectionSheet({ branch }) {
                             <option value="">All Groups</option>
                             {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
+                        <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className="border rounded p-2 text-sm">
+                            <option value="">All Products</option>
+                            {uniqueProducts.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
                         <button onClick={handlePrint} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Print Sheet</button>
                     </div>
                 </div>
@@ -234,59 +241,72 @@ function FieldCollectionSheet({ branch }) {
                     <div className="text-center py-4 text-red-600 bg-red-50 rounded border border-red-200">{error}</div>
                 ) : (
                     <table className="w-full text-[11px] border-collapse">
-                        <thead>
-                            <tr className="bg-gray-100">
-                                <th className="border">Client ID</th>
-                                <th className="border">Name</th>
-                                <th className="border">Savings Balance</th>
-                                <th className="border">Loan Product</th>
-                                <th className="border">Last Pay Date</th>
-                                <th className="border">Weeks Paid</th>
-                                <th className="border">Weekly Rate</th>
-                                <th className="border">Outstanding Bal</th>
-                                <th className="border">Total Paid</th>
-                                <th className="border">Expected</th>
-                                <th className="border">Overdue</th>
-                                <th className="border p-2">Realise Amount</th>
-                                <th className="border no-print">Calc Date</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredReportData.map(client => {
-                                const rowDateStr = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
-                                const metrics = calculateMetrics(client, rowDateStr);
+                <thead>
+                    <tr className="bg-gray-100">
+                        <th className="border">Client ID</th>
+                        <th className="border">Name</th>
+                        <th className="border">Total Sav</th>
+                        <th className="border"> Savings</th>
+                        <th className="border">Loan Product</th>
+                        <th className="border">Last Pay Date</th>
+                        <th className="border">Weeks Paid</th>
+                        <th className="border">Weekly Rate</th>
+                        <th className="border">Outstanding Bal</th>
+                        <th className="border">Total Paid</th>
+                        <th className="border">Expected</th>
+                        <th className="border">Overdue</th>
+                        <th className="border p-2">Realise Amount</th>
+                        <th className="border no-print">Calc Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {filteredReportData.map(client => {
+                        const rowDateStr = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
+                        const metrics = calculateMetrics(client, rowDateStr);
 
-                                return (
-                                    <tr key={client.loanId}>
-                                        <td className="border p-1">{client.clientId}</td>
-                                        <td className="border p-1 text-left">{client.fullName}</td>
-                                        <td className="border p-1">{(client.compSavingsBal + client.volSavingsBal).toFixed(2)}</td>
-                                        <td className="border p-1">{client.loanProduct}</td>
-                                        <td className="border p-1">
-                                            {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
-                                        </td>
-                                        <td className="border p-1 font-semibold text-gray-700">{client.repaymentCount}</td>
-                                        <td className="border p-1">SLE {client.weeklyRate.toFixed(2)}</td>
-                                        <td className="border p-1 font-semibold text-indigo-700">SLE {client.loanOutstanding.toFixed(2)}</td>
-                                        <td className="border p-1 text-emerald-700">SLE {client.totalRepaymentSoFar.toFixed(2)}</td>
-                                        <td className="border p-1 font-semibold text-gray-800">SLE {metrics.expected.toFixed(2)}</td>
-                                        <td className={`border p-1 font-bold ${metrics.overdue > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                            SLE {metrics.overdue.toFixed(2)}
-                                        </td>
-                                        <td className="border p-2"> </td>
-                                        <td className="border p-1 no-print">
-                                            <input
-                                                type="date"
-                                                value={rowDateStr}
-                                                className="border rounded text-[10px] p-0.5"
-                                                onChange={e => setClientDates({ ...clientDates, [client.clientId]: e.target.value })}
-                                            />
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                        // 🌟 EXACT REPLICATED CALCULATION LOGIC 🌟
+                        const actualAmount = client.weeklyRate || 0;
+                        const totalRepaymentSoFar = client.totalRepaymentSoFar || 0;
+                        
+                        const weeksPaid = (actualAmount !== 0) 
+                            ? totalRepaymentSoFar / actualAmount 
+                            : 0;
+
+                        return (
+                            <tr key={client.loanId}>
+                                <td className="border p-1">{client.clientId}</td>
+                                <td className="border p-1 text-left">{client.fullName}</td>
+                                <td className="border p-1">{(client.compSavingsBal + client.volSavingsBal).toFixed(2)}</td>
+                                <td className="border p-2"></td>
+                                <td className="border p-1">{client.loanProduct}</td>
+                                <td className="border p-1">
+                                    {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
+                                </td>
+                                {/* Displays rounded value with "week/s" label exactly like ClientReport */}
+                                <td className="border p-1 font-semibold text-gray-700">
+                                    {Math.round(weeksPaid)} week/s
+                                </td>
+                                <td className="border p-1">SLE {client.weeklyRate.toFixed(2)}</td>
+                                <td className="border p-1 font-semibold text-indigo-700">SLE {client.loanOutstanding.toFixed(2)}</td>
+                                <td className="border p-1 text-emerald-700">SLE {client.totalRepaymentSoFar.toFixed(2)}</td>
+                                <td className="border p-1 font-semibold text-gray-800">SLE {metrics.expected.toFixed(2)}</td>
+                                <td className={`border p-1 font-bold ${metrics.overdue > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                    SLE {metrics.overdue.toFixed(2)}
+                                </td>
+                                <td className="border p-2"> </td>
+                                <td className="border p-1 no-print">
+                                    <input
+                                        type="date"
+                                        value={rowDateStr}
+                                        className="border rounded text-[10px] p-0.5"
+                                        onChange={e => setClientDates({ ...clientDates, [client.clientId]: e.target.value })}
+                                    />
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
                 )}
             </div>
         </div>
