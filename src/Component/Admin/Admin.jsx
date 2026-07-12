@@ -126,10 +126,10 @@ const NAV_ITEMS = [
         icon: <MdAssignment />,
         children: [
           { key: "overdueLoans", label: "Overdue Loans", icon: <MdWarning /> },
-          { key: "disbursedLoans", label: "Disbursed Loans", icon: <MdCheckCircle /> },
-          { key: "outstandingBalances", label: "Outstanding Balances", icon: <MdRemoveCircle /> },
-          { key: "fullypaid", label: "Fully Paid", icon: <MdRemoveCircle /> },
-          { key: "paymentdetails", label: "Payment Details", icon: <MdRemoveCircle /> },
+          // { key: "disbursedLoans", label: "Disbursed Loans", icon: <MdCheckCircle /> },
+          // { key: "outstandingBalances", label: "Outstanding Balances", icon: <MdRemoveCircle /> },
+          // { key: "fullypaid", label: "Fully Paid", icon: <MdRemoveCircle /> },
+          // { key: "paymentdetails", label: "Payment Details", icon: <MdRemoveCircle /> },
         ],
       },
       {
