@@ -43,7 +43,7 @@ import TrialBalance from "../TrialBalance/TrialBalance";
 import LegacyStaffRepair from "../TrialBalance/LegacyStaffRepair";
 import BranchForm from "../Admin/BranchForm";
 import UserForm from "../Admin/UserForm";
-import CeoForm from "../Admin/CeoForm";
+import CeoForm from "./CeoForm";
 import CompaniesForm from "../Admin/CompaniesForm";
 import StaffReport from "../Reports/NewReport/StaffReport";
 import LoanAndSavingsReport from "../Reports/NewReport/LoanAndSavingsReport";
