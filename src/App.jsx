@@ -1,6 +1,6 @@
-// App.jsx
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import AdminPanel from "./Component/Admin/Admin";
+import CeoControlPanel from "./Component/Admin/CeoControlPanel";
 import LoginPage from "./Component/Admin/LoginPage";
 import PaymentDetails from "./Component/Load Details/PaymentDetails";
 import BranchForm from "./Component/Admin/BranchForm";
@@ -11,17 +11,19 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Default route goes to login */}
+        {/* Login routes */}
         <Route path="/" element={<LoginPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/ceologin" element={<LoginPage />} />
+
         <Route path="/user" element={<UserForm />} />
         <Route path="/branch" element={<BranchForm />} />
         <Route path="/StaffPanel" element={<StaffPanel />} />
 
-
-        {/* After login, go to dashboard */}
+        {/* CEO Control Panel & Dashboard */}
+        <Route path="/CeoControlPanel" element={<CeoControlPanel />} />
         <Route path="/dashboard" element={<AdminPanel />} />
 
-        {/* Example: payment details page */}
         <Route path="/payments" element={<PaymentDetails />} />
       </Routes>
     </Router>

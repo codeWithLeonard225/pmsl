@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../../../firebase";
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
@@ -15,22 +15,22 @@ export default function LoginPage() {
 
   const fetchBranchDetails = async (bId) => {
     try {
-        // Look in the "branches" collection where branchId matches
-        const branchRef = collection(db, "branches");
-        const q = query(branchRef, where("branchId", "==", bId));
-        const querySnapshot = await getDocs(q);
+      // Look in the "branches" collection where branchId matches
+      const branchRef = collection(db, "branches");
+      const q = query(branchRef, where("branchId", "==", bId));
+      const querySnapshot = await getDocs(q);
 
-        if (!querySnapshot.empty) {
-            const branchData = querySnapshot.docs[0].data();
-            // Save the short code to session storage
-            sessionStorage.setItem("companyShortCode", branchData.companyShortCode);
-            return branchData;
-        }
+      if (!querySnapshot.empty) {
+        const branchData = querySnapshot.docs[0].data();
+        // Save the short code to session storage
+        sessionStorage.setItem("companyShortCode", branchData.companyShortCode);
+        return branchData;
+      }
     } catch (err) {
-        console.error("Error fetching branch details:", err);
+      console.error("Error fetching branch details:", err);
     }
     return null;
-};
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -58,79 +58,78 @@ export default function LoginPage() {
 
         const snapshot = await getDocs(q);
 
-       if (!snapshot.empty) {
-        const user = snapshot.docs[0].data();
-        
-        // 🚨 IMPORTANT: You MUST 'await' this so it finishes 
-        // saving to sessionStorage BEFORE you navigate away.
-        await fetchBranchDetails(user.branchId); 
+        if (!snapshot.empty) {
+          const user = snapshot.docs[0].data();
 
-        sessionStorage.setItem("branchId", user.branchId);
-        sessionStorage.setItem("userData", JSON.stringify(user));
-        navigate("/dashboard");
-        return;
-    }
+          await fetchBranchDetails(user.branchId);
+
+          sessionStorage.setItem("branchId", user.branchId);
+          sessionStorage.setItem("userData", JSON.stringify(user));
+          navigate("/dashboard");
+          return;
+        }
       }
-      // 1. Create a helper function to get branch details
-
 
       // ================= STAFF LOGIN =================
       const staffRef = collection(db, "staffMembers");
       const staffQ = query(
         staffRef,
-        where("staffId", "==", trimmedCode), // staff login uses staffId as code
+        where("staffId", "==", trimmedCode),
         where("fullName", "==", username.trim()),
         where("branchId", "==", branchId.trim())
       );
 
       const staffSnap = await getDocs(staffQ);
-     if (!staffSnap.empty) {
-    const staffData = staffSnap.docs[0].data();
-   // 🚨 IMPORTANT: Await here as well
-    await fetchBranchDetails(staffData.branchId); 
+      if (!staffSnap.empty) {
+        const staffData = staffSnap.docs[0].data();
+        
+        await fetchBranchDetails(staffData.branchId);
 
-    sessionStorage.setItem("staffData", JSON.stringify(staffData));
-    sessionStorage.setItem("branchId", staffData.branchId);
-    navigate("/StaffPanel");
-    return;
-}
+        sessionStorage.setItem("staffData", JSON.stringify(staffData));
+        sessionStorage.setItem("branchId", staffData.branchId);
+        navigate("/StaffPanel");
+        return;
+      }
 
       // ================= CEO LOGIN =================
-     const ceoRef = collection(db, "ceo");
-const ceoQ = query(
-  ceoRef,
-  where("username", "==", trimmedUsername),
-  where("code", "==", trimmedCode)
-);
+      const ceoRef = collection(db, "ceo");
+      const ceoQ = query(
+        ceoRef,
+        where("username", "==", trimmedUsername),
+        where("code", "==", trimmedCode)
+      );
 
-const ceoSnap = await getDocs(ceoQ);
-if (!ceoSnap.empty) {
-  const ceoData = ceoSnap.docs[0].data();
-  
-  // 1. Save basic CEO data
-  sessionStorage.setItem("ceoData", JSON.stringify(ceoData));
-  
-  // 2. ✨ If the CEO document has the companyShortCode directly:
-  if (ceoData.companyShortCode) {
-    sessionStorage.setItem("companyShortCode", ceoData.companyShortCode);
-  } 
-  // 3. OR if the CEO document has a companyId, fetch the code from branches:
-  else if (ceoData.companyId) {
-    // We query branches to find any branch belonging to this company to get the short code
-    const branchRef = collection(db, "branches");
-    const q = query(branchRef, where("companyId", "==", ceoData.companyId));
-    const branchSnap = await getDocs(q);
-    
-    if (!branchSnap.empty) {
-      const code = branchSnap.docs[0].data().companyShortCode;
-      sessionStorage.setItem("companyShortCode", code);
-    }
-  }
+      const ceoSnap = await getDocs(ceoQ);
 
-  console.log("CEO login successful!");
-  navigate("/ceopage");
-  return;
-}
+      if (!ceoSnap.empty) {
+        const ceoData = ceoSnap.docs[0].data();
+
+        // 1. Save base session items
+        sessionStorage.setItem("ceoData", JSON.stringify(ceoData));
+        sessionStorage.setItem("role", "ceo");
+        sessionStorage.setItem("companyId", ceoData.companyId || "");
+
+        // 2. Set companyShortCode (directly from record or by fetching a matching branch)
+        if (ceoData.companyShortCode) {
+          sessionStorage.setItem("companyShortCode", ceoData.companyShortCode);
+        } else if (ceoData.companyId) {
+          const branchRef = collection(db, "branches");
+          const branchQ = query(
+            branchRef,
+            where("companyId", "==", ceoData.companyId)
+          );
+          const branchSnap = await getDocs(branchQ);
+
+          if (!branchSnap.empty) {
+            const shortCode = branchSnap.docs[0].data().companyShortCode;
+            sessionStorage.setItem("companyShortCode", shortCode);
+          }
+        }
+
+        console.log("CEO login successful!");
+        navigate("/CeoControlPanel");
+        return;
+      }
 
       // If none matched
       setError("Invalid credentials. Please check your details.");

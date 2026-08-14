@@ -1,398 +1,206 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'; // Added useMemo
-import { db } from '../../../firebase';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { db } from "../../../firebase";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import { Eye, EyeOff } from "lucide-react";
 
-const printStyles = `
-@media print {
-    @page { size: landscape; margin: 20mm; }
-    body { font-family: Arial, sans-serif; font-size: 11px; }
-    .no-print { display: none !important; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #333; padding: 4px; text-align: center; }
-    th { background-color: #eee; }
-    .text-red-500 { color: #ef4444 !important; }
-}
-`;
+export default function LoginPage() {
+  const [branchId, setBranchId] = useState("");
+  const [code, setCode] = useState("");
+  const [username, setUsername] = useState("");
+  const [error, setError] = useState("");
+  const [showCode, setShowCode] = useState(false);
 
-function FieldCollectionSheet({ branch }) {
-    const [branchId, setBranchId] = useState('');
-    const printAreaRef = useRef(null);
-    const [payments, setPayments] = useState([]);
-    const [savings, setSavings] = useState([]);
-    const [loadingPayments, setLoadingPayments] = useState(true);
-    const [loadingSavings, setLoadingSavings] = useState(true);
-    const [error, setError] = useState(null);
-    const [selectedStaff, setSelectedStaff] = useState('');
-    const [selectedGroup, setSelectedGroup] = useState('');
-    
-    // NEW: Single state for the report-wide calculation date
-    const [calculationDate, setCalculationDate] = useState(new Date().toISOString().slice(0, 10)); 
+  const navigate = useNavigate();
 
-    // --- useEffect for data fetching (No changes needed, it's already correct) ---
-    useEffect(() => {
-        if (!branch || !branch.branchId) {
-            console.warn("⚠️ Branch or branchId not provided yet:", branch);
-            setLoadingPayments(false);
-            setLoadingSavings(false);
-            return;
+  const fetchBranchDetails = async (bId) => {
+    try {
+        // Look in the "branches" collection where branchId matches
+        const branchRef = collection(db, "branches");
+        const q = query(branchRef, where("branchId", "==", bId));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+            const branchData = querySnapshot.docs[0].data();
+            // Save the short code to session storage
+            sessionStorage.setItem("companyShortCode", branchData.companyShortCode);
+            return branchData;
         }
+    } catch (err) {
+        console.error("Error fetching branch details:", err);
+    }
+    return null;
+};
 
-        const currentBranchId = branch.branchId;
-        setBranchId(currentBranchId);
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!code || !username) {
+      setError("Please fill in all required fields!");
+      return;
+    }
+
+    try {
+      const trimmedBranchId = branchId.trim();
+      const trimmedCode = code.trim();
+      const trimmedUsername = username.trim().toLowerCase();
+
+      // ================= USER LOGIN =================
+      if (branchId) {
+        const usersRef = collection(db, "users");
+        const q = query(
+          usersRef,
+          where("branchId", "==", trimmedBranchId),
+          where("userCode", "==", trimmedCode),
+          where("username", "==", trimmedUsername)
+        );
+
+        const snapshot = await getDocs(q);
+
+       if (!snapshot.empty) {
+        const user = snapshot.docs[0].data();
         
-        const paymentsCollectionRef = collection(db, "payments");
-        const paymentsQuery = query(paymentsCollectionRef, where("branchId", "==", currentBranchId));
+        // 🚨 IMPORTANT: You MUST 'await' this so it finishes 
+        // saving to sessionStorage BEFORE you navigate away.
+        await fetchBranchDetails(user.branchId); 
 
-        const unsubscribePayments = onSnapshot(paymentsQuery, (snapshot) => {
-            const fetchedPayments = snapshot.docs.map((doc) => {
-                const data = doc.data();
-                let createdAt = null;
-                if (data.createdAt) {
-                    createdAt = typeof data.createdAt.toDate === "function" ? data.createdAt.toDate() : new Date(data.createdAt);
-                }
-                return { id: doc.id, ...data, createdAt };
-            });
-            setPayments(fetchedPayments);
-            setLoadingPayments(false);
-        }, (err) => {
-            console.error("❌ Error fetching payments:", err);
-            setError("Failed to load payments.");
-            setLoadingPayments(false);
-        });
-
-        const savingsCollectionRef = collection(db, "savings");
-        const savingsQuery = query(savingsCollectionRef, where("branchId", "==", currentBranchId));
-        const unsubscribeSavings = onSnapshot(savingsQuery, (snapshot) => {
-            const fetchedSavings = snapshot.docs.map((doc) => doc.data());
-            setSavings(fetchedSavings);
-            setLoadingSavings(false);
-        }, (err) => {
-            console.error("❌ Error fetching savings:", err);
-            setError("Failed to load savings.");
-            setLoadingSavings(false);
-        });
-
-        return () => {
-            unsubscribePayments();
-            unsubscribeSavings();
-        };
-    }, [branch]);
-
-    // --- Data Grouping Logic ---
-    const groupByClient = (payments, savings) => {
-        const groupedData = {};
-
-        // Prepare savings lookup: Total savings per client
-        const savingsLookup = savings.reduce((acc, current) => {
-            if (!acc[current.clientId]) {
-                acc[current.clientId] = { compulsoryAmount: 0, voluntarySavings: 0 };
-            }
-            // Sum all savings for the client, regardless of the savings entry date
-            acc[current.clientId].compulsoryAmount += current.compulsoryAmount || 0;
-            acc[current.clientId].voluntarySavings += current.voluntarySavings || 0;
-            return acc;
-        }, {});
-
-        payments.forEach(payment => {
-            const {
-                clientId, fullName, actualAmount, repaymentAmount, date, loanOutstanding,
-                staffName, groupId, groupName, loanOutcome, loanType, loanId,
-            } = payment;
-
-            const paymentDate = new Date(date);
-            // KEY: Unique combination of client and loan ID
-            const key = `${clientId}-${loanId}`; 
-
-            if (!groupedData[key]) {
-                const clientSavings = savingsLookup[clientId] || {};
-                groupedData[key] = {
-                    // *** NEW: Use the unique key as the ID for the row ***
-                    id: key, 
-                    clientId,
-                    fullName,
-                    loanOutstanding: loanOutstanding || 0,
-                    // Savings balance reflects the total for the client
-                    compSvgBal: clientSavings.compulsoryAmount || 0, 
-                    volSvgBal: clientSavings.voluntarySavings || 0, 
-                    repaymentCount: 0,
-                    actualAmount: actualAmount || 0,
-                    totalRepaymentSoFar: 0,
-                    latestPaymentDate: paymentDate,
-                    firstPaymentDate: paymentDate,
-                    staffName, groupId, groupName, loanId,
-                    loanProduct: [loanOutcome, loanType].filter(Boolean).join(" - "),
-                    repaymentAmount: repaymentAmount || 0, 
-                };
-            } else {
-                // Update first and latest payment dates, and latest actual amount
-                if (paymentDate < groupedData[key].firstPaymentDate) {
-                    groupedData[key].firstPaymentDate = paymentDate;
-                }
-                if (paymentDate > groupedData[key].latestPaymentDate) {
-                    groupedData[key].latestPaymentDate = paymentDate;
-                    groupedData[key].actualAmount = actualAmount || 0; 
-                }
-            }
-
-            // Sums across all payments for this specific loan
-            groupedData[key].repaymentCount += 1;
-            groupedData[key].totalRepaymentSoFar += repaymentAmount || 0;
-        });
-
-        return Object.values(groupedData);
-    };
-
-    // Use useMemo to re-calculate grouped/filtered data only when dependencies change
-    const finalReportData = useMemo(() => {
-        let data = groupByClient(payments, savings);
-        
-        if (selectedStaff) {
-            data = data.filter(c => c.staffName === selectedStaff);
-        }
-        if (selectedGroup) {
-            data = data.filter(c => `${c.groupName} (${c.groupId})` === selectedGroup);
-        }
-        return data;
-    }, [payments, savings, selectedStaff, selectedGroup]);
+        sessionStorage.setItem("branchId", user.branchId);
+        sessionStorage.setItem("userData", JSON.stringify(user));
+        navigate("/dashboard");
+        return;
+    }
+      }
+      // 1. Create a helper function to get branch details
 
 
-    // --- Calculation function (No changes needed) ---
-    const calculateClientMetrics = (client, dateString) => {
-        const calcDate = new Date(dateString);
-        let expectedPayment = 0;
-        let overdueAmount = 0;
+      // ================= STAFF LOGIN =================
+      const staffRef = collection(db, "staffMembers");
+      const staffQ = query(
+        staffRef,
+        where("staffId", "==", trimmedCode), // staff login uses staffId as code
+        where("fullName", "==", username.trim()),
+        where("branchId", "==", branchId.trim())
+      );
 
-        if (client.firstPaymentDate) {
-            const start = client.firstPaymentDate;
-            const diffTime = calcDate - start;
-            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            
-            // Assuming weekly repayment, as per your original logic
-            const weeksDue = diffDays > 0 ? Math.floor(diffDays / 7) : 0; 
+      const staffSnap = await getDocs(staffQ);
+     if (!staffSnap.empty) {
+    const staffData = staffSnap.docs[0].data();
+   // 🚨 IMPORTANT: Await here as well
+    await fetchBranchDetails(staffData.branchId); 
 
-            expectedPayment = weeksDue * (client.repaymentAmount || 0); // Use repaymentAmount, not actualAmount (which is the last payment)
-            overdueAmount = Math.max(0, expectedPayment - (client.totalRepaymentSoFar || 0));
-        }
-
-        return { expectedPayment, overdueAmount };
-    };
-    
-    // --- UI/Helper Logic ---
-    const uniqueStaff = useMemo(() => [...new Set(payments.map(p => p.staffName).filter(Boolean))], [payments]);
-    const uniqueGroups = useMemo(() => [...new Set(payments.map(p => `${p.groupName} (${p.groupId})`).filter(Boolean))], [payments]);
-
-    const handlePrint = () => {
-        // ... (Your print logic remains the same)
-        const printContents = printAreaRef.current.innerHTML;
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'absolute';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        document.body.appendChild(iframe);
-
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        doc.open();
-        doc.write(`
-            <html>
-                <head>
-                    <title>Field Collection Sheet</title>
-                    <style>${printStyles}</style>
-                </head>
-                <body>${printContents}</body>
-            </html>
-        `);
-        doc.close();
-
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-        setTimeout(() => document.body.removeChild(iframe), 1000);
-    };
-
-    const getCurrentDate = () => new Date().toLocaleDateString();
-    const isLoading = loadingPayments || loadingSavings;
-    
-    // Pre-calculate all metrics for the report date
-    const allClientMetrics = useMemo(() => {
-        return finalReportData.reduce((acc, client) => {
-            acc[client.id] = calculateClientMetrics(client, calculationDate); // Use the unique loan ID
-            return acc;
-        }, {});
-    }, [finalReportData, calculationDate]);
-
-    return (
-        <div className="container mx-auto p-6 bg-gray-100 min-h-screen font-sans">
-            <style>{printStyles}</style>
-            <div className="bg-white rounded-xl shadow-lg p-8">
-                <h1 className="text-3xl font-bold text-gray-800 mb-2 no-print">Field Collection Sheet</h1>
-
-                <div className="no-print mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b pb-4">
-                    <div className="flex items-center space-x-2">
-                        <label className="font-medium text-gray-700">Staff:</label>
-                        <select
-                            value={selectedStaff}
-                            onChange={e => setSelectedStaff(e.target.value)}
-                            className="px-3 py-2 border rounded-md"
-                        >
-                            <option value="">All</option>
-                            {uniqueStaff.map(staff => (
-                                <option key={staff} value={staff}>{staff}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                        <label className="font-medium text-gray-700">Group:</label>
-                        <select
-                            value={selectedGroup}
-                            onChange={e => setSelectedGroup(e.target.value)}
-                            className="px-3 py-2 border rounded-md"
-                        >
-                            <option value="">All</option>
-                            {uniqueGroups.map(group => (
-                                <option key={group} value={group}>{group}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* NEW: Report-wide date selector */}
-                    <div className="flex items-center space-x-2">
-                        <label className="font-medium text-gray-700">Calculation Date:</label>
-                        <input
-                            type="date"
-                            value={calculationDate}
-                            onChange={e => setCalculationDate(e.target.value)}
-                            className="px-3 py-2 border rounded-md w-40"
-                        />
-                    </div>
-                    {/* END NEW */}
-
-                    <button
-                        onClick={handlePrint}
-                        className="px-6 py-2 bg-green-600 text-white font-medium rounded-md shadow-md hover:bg-green-700 transition-colors duration-200"
-                    >
-                        Print Report
-                    </button>
-                </div>
-
-                <div id="printArea" ref={printAreaRef}>
-                    <p className="text-sm text-gray-600 mb-2">Printed on: {getCurrentDate()}</p>
-                    <hr className="mb-4" />
-
-                    <div className="mb-4">
-                        <h2 className="font-semibold">Branch ID: {branchId}</h2>
-                        <h2 className="font-semibold">Loan Officer: {selectedStaff || 'All'}</h2>
-                        <h2 className="font-semibold">Group Name: {selectedGroup || 'All'}</h2>
-                        <h2 className="font-semibold">Calculation Date: {new Date(calculationDate).toLocaleDateString()}</h2>
-                    </div>
-
-                    {isLoading ? (
-                        <div className="text-center py-4 text-gray-500">Loading...</div>
-                    ) : error ? (
-                        <div className="text-center py-4 text-red-500">{error}</div>
-                    ) : (
-                        <table className="w-full border-collapse border border-gray-300 text-sm">
-                            <thead className="bg-gray-100">
-                                <tr>
-                                    <th className="border p-2">Client ID</th>
-                                    <th className="border p-2">Client Name</th>
-                                    <th className="border p-2">Comp Svg Bal</th>
-                                    <th className="border p-2">Vol Svg Bal</th>
-                                    <th className="border p-2">Total Bal</th>
-                                    <th className="border p-2">Comp Svg Col</th>
-                                    <th className="border p-2">Vol Col</th>
-                                    <th className="border p-2">Loan Prod</th>
-                                    <th className="border p-2">Latest Payment Date</th>
-                                    <th className="border p-2">Rpyt count</th>
-                                    <th className="border p-2">Repayment Amount</th>
-                                    <th className="border p-2">Loan Outstanding</th>
-                                    <th className="border p-2">Total Repayment So Far</th>
-                                    <th className="border p-2">Expected Payment</th>
-                                    <th className="border p-2">Overdue Amount</th>
-                                    <th className="border p-2">Realise Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {finalReportData.length > 0 ? (
-                                    finalReportData.map(client => {
-                                        const metrics = allClientMetrics[client.id] || { expectedPayment: 0, overdueAmount: 0 };
-                                        const overdueAmount = metrics.overdueAmount;
-
-                                        return (
-                                            <tr key={client.id}>
-                                                <td className="border p-2">{client.clientId}</td>
-                                                <td className="border p-2">{client.fullName}</td>
-                                                <td className="border p-2">SLE {(client.compSvgBal || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(client.volSvgBal || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {((client.compSvgBal || 0) + (client.volSvgBal || 0)).toFixed(2)}</td>
-                                                <td className="border p-2"></td>
-                                                <td className="border p-2"></td>
-                                                <td className="border p-2">{client.loanProduct}</td>
-                                                <td className="border p-2">{client.latestPaymentDate.toLocaleDateString()}</td>
-                                                <td className="border p-2">{client.repaymentCount}</td>
-                                                <td className="border p-2">SLE {(client.repaymentAmount || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(client.loanOutstanding || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(client.totalRepaymentSoFar || 0).toFixed(2)}</td>
-                                                <td className="border p-2">SLE {(metrics.expectedPayment || 0).toFixed(2)}</td>
-                                                <td className={`border p-2 ${overdueAmount > 0 ? 'text-red-500' : ''}`}>
-                                                    SLE {(overdueAmount || 0).toFixed(2)}
-                                                </td>
-                                                <td className="border p-2"> </td>
-                                                {/* The calculation date input column is REMOVED from the table */}
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan="16" className="text-center p-4 text-gray-500">No data available for the selected filters.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                            {/* ... Your footer logic is correct (using allClientMetrics) ... */}
-                            <tfoot className="bg-gray-200 font-semibold">
-                                <tr>
-                                    <td className="border p-2 text-left" colSpan="2">
-                                        No. of Loans: {finalReportData.length}
-                                    </td>
-                                    <td className="border p-2" colSpan="3"></td>
-                                    <td className="border p-2" colSpan="2"></td>
-                                    <td className="border p-2" colSpan="2"></td>
-                                    <td className="border p-2" colSpan="1"></td>
-                                    <td className="border p-2"></td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (c.repaymentAmount || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (c.loanOutstanding || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (c.totalRepaymentSoFar || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (allClientMetrics[c.id]?.expectedPayment || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2">
-                                        SLE {finalReportData.reduce((sum, c) => sum + (allClientMetrics[c.id]?.overdueAmount || 0), 0).toFixed(2)}
-                                    </td>
-                                    <td className="border p-2"></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    )}
-                    <div className="mt-10 text-sm">
-                        <p className="mb-2">
-                            CO's Signature ...............................................
-                            BM's Signature ...............................................
-                            Date: ...............................................
-                        </p>
-                        <p className="font-semibold mt-10">
-                            Total Collection: ...............................................
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
+    sessionStorage.setItem("staffData", JSON.stringify(staffData));
+    sessionStorage.setItem("branchId", staffData.branchId);
+    navigate("/StaffPanel");
+    return;
 }
 
-export default FieldCollectionSheet;
+      // ================= CEO LOGIN =================
+     const ceoRef = collection(db, "ceo");
+const ceoQ = query(
+  ceoRef,
+  where("username", "==", trimmedUsername),
+  where("code", "==", trimmedCode)
+);
+
+const ceoSnap = await getDocs(ceoQ);
+if (!ceoSnap.empty) {
+  const ceoData = ceoSnap.docs[0].data();
+  
+  // 1. Save basic CEO data
+  sessionStorage.setItem("ceoData", JSON.stringify(ceoData));
+  
+  // 2. ✨ If the CEO document has the companyShortCode directly:
+  if (ceoData.companyShortCode) {
+    sessionStorage.setItem("companyShortCode", ceoData.companyShortCode);
+  } 
+  // 3. OR if the CEO document has a companyId, fetch the code from branches:
+  else if (ceoData.companyId) {
+    // We query branches to find any branch belonging to this company to get the short code
+    const branchRef = collection(db, "branches");
+    const q = query(branchRef, where("companyId", "==", ceoData.companyId));
+    const branchSnap = await getDocs(q);
+    
+    if (!branchSnap.empty) {
+      const code = branchSnap.docs[0].data().companyShortCode;
+      sessionStorage.setItem("companyShortCode", code);
+    }
+  }
+
+  console.log("CEO login successful!");
+  navigate("/ceopage");
+  return;
+}
+
+      // If none matched
+      setError("Invalid credentials. Please check your details.");
+
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("Something went wrong. Please try again later.");
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-md">
+        <h2 className="text-2xl font-bold mb-6 text-center">
+          Microfinance Login
+        </h2>
+
+        {error && <p className="text-red-500 text-center mb-4">{error}</p>}
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          {/* Branch ID (only needed for Users & Staff) */}
+          <div>
+            <label className="block mb-1 font-medium">Branch ID</label>
+            <input
+              type="text"
+              value={branchId}
+              onChange={(e) => setBranchId(e.target.value)}
+              placeholder="Enter branch ID (optional for CEO)"
+              className="w-full p-2 border rounded-lg focus:ring focus:ring-blue-300"
+            />
+          </div>
+
+          {/* Code / Password */}
+          <div className="relative">
+            <label className="block mb-1 font-medium">Code</label>
+            <input
+              type={showCode ? "text" : "password"}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Enter code"
+              className="w-full p-2 border rounded-lg focus:ring focus:ring-blue-300"
+            />
+            <span
+              className="absolute right-2 top-9 cursor-pointer"
+              onClick={() => setShowCode(!showCode)}
+            >
+              {showCode ? <EyeOff size={20} /> : <Eye size={20} />}
+            </span>
+          </div>
+
+          {/* Username */}
+          <div>
+            <label className="block mb-1 font-medium">User Name</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter username / full name"
+              className="w-full p-2 border rounded-lg focus:ring focus:ring-blue-300"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+          >
+            Login
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}

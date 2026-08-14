@@ -1,4 +1,4 @@
-// AdminPanel.jsx
+// AdminCeo.jsx
 import React, { useState, useEffect } from "react";
 import {
   MdDashboard,
@@ -41,10 +41,9 @@ import ActualExpenses from "../TrialBalance/ActualExpenses";
 import OfficeRentPrepaid from "../TrialBalance/OfficeRentPrepaid";
 import TrialBalance from "../TrialBalance/TrialBalance";
 import LegacyStaffRepair from "../TrialBalance/LegacyStaffRepair";
-import BranchForm from "../Admin/BranchForm";
-import UserForm from "../Admin/UserForm";
-import CeoForm from "../Admin/CeoForm";
-import CompaniesForm from "../Admin/CompaniesForm";
+import BranchForm from "./BranchForm";
+import UserForm from "./UserForm";
+import CompaniesForm from "./CompaniesForm";
 import StaffReport from "../Reports/NewReport/StaffReport";
 import LoanAndSavingsReport from "../Reports/NewReport/LoanAndSavingsReport";
 import MasterTransactionLedger from "../Reports/NewReport/MasterTransactionLedger";
@@ -67,7 +66,6 @@ const NAV_ITEMS = [
   //     { key: "UserForm", label: "UserForm", icon: <MdPeople /> },
   //     { key: "CompaniesForm", label: "CompaniesForm", icon: <MdPeople /> },
   //     { key: "LegacyStaffRepair", label: "LegacyStaffRepair", icon: <MdPeople /> },
-  //     { key: "CeoForm", label: "CeoForm", icon: <MdPeople /> },
   //   ],
   // },
   {
@@ -279,7 +277,7 @@ function AdminPanel() {
   const renderContent = () => {
     const props = { branch };
     switch (activeTab) {
-      case "CeoForm": return <CeoForm {...props} />;
+      // case "actualExpences": return <ActualExpenses {...props} />;
       // case "officeRentPrepaid": return <OfficeRentPrepaid {...props} />;
       // case "trialBalance": return <TrialBalance {...props} />;
       case "staffForm": return <StaffForm {...props} />;
