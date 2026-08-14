@@ -43,7 +43,7 @@ import TrialBalance from "../TrialBalance/TrialBalance";
 import LegacyStaffRepair from "../TrialBalance/LegacyStaffRepair";
 import BranchForm from "../Admin/BranchForm";
 import UserForm from "../Admin/UserForm";
-import CeoForm from "./CeoForm";
+// import CeoForm from "./CeoForm";
 import CompaniesForm from "../Admin/CompaniesForm";
 import StaffReport from "../Reports/NewReport/StaffReport";
 import LoanAndSavingsReport from "../Reports/NewReport/LoanAndSavingsReport";
@@ -279,7 +279,7 @@ function AdminPanel() {
   const renderContent = () => {
     const props = { branch };
     switch (activeTab) {
-      case "CeoForm": return <CeoForm {...props} />;
+      // case "CeoForm": return <CeoForm {...props} />;
       // case "officeRentPrepaid": return <OfficeRentPrepaid {...props} />;
       // case "trialBalance": return <TrialBalance {...props} />;
       case "staffForm": return <StaffForm {...props} />;
