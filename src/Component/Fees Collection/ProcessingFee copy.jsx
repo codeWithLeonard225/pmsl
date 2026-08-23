@@ -27,7 +27,7 @@ function FieldCollectionSheet({ branch }) {
     const [selectedGroup, setSelectedGroup] = useState('');
     const [clientDates, setClientDates] = useState({});
     const printAreaRef = useRef(null);
-    const [selectedProduct, setSelectedProduct] = useState(''); // New State
+    const [selectedProduct, setSelectedProduct] = useState('');
 
     // 1. Determine branchId
     useEffect(() => {
@@ -116,25 +116,21 @@ function FieldCollectionSheet({ branch }) {
             let weeklyRate = 0;
             let runningOutstanding = parseFloat(loan.principal || 0);
 
-            // Sort payments chronically to trace the true latest balance accurately
             const sortedPayments = [...loanPayments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
             sortedPayments.forEach(p => {
                 totalRepayment += p.repaymentAmount || 0;
                 const pDate = new Date(p.date);
 
-                // Track latest details dynamically matching ClientReport.jsx setup
                 if (!latestPaymentDate || pDate > latestPaymentDate) {
                     latestPaymentDate = pDate;
                     weeklyRate = p.actualAmount || weeklyRate;
-                    // Fall back cleanly if snapshot fields vary down-chain
                     if (p.loanOutstanding !== undefined) {
                         runningOutstanding = parseFloat(p.loanOutstanding);
                     }
                 }
             });
 
-            // If no collections found, fall back safely to base calculation structures
             if (weeklyRate === 0) {
                 const totalPrincipal = parseFloat(loan.principal || 0);
                 const interest = totalPrincipal * ((loan.interestRate || 0) / 100);
@@ -143,6 +139,15 @@ function FieldCollectionSheet({ branch }) {
             }
 
             const clientSavings = savingsLookup[loan.clientId] || { comp: 0, vol: 0 };
+
+            // 💡 REPAYMENT END DATE CALCULATION
+            let repaymentEndDate = null;
+            if (loan.repaymentStartDate && loan.paymentWeeks) {
+                const startDate = new Date(loan.repaymentStartDate);
+                const weeks = parseInt(loan.paymentWeeks, 10) || 0;
+                // Add (weeks * 7) days to start date
+                repaymentEndDate = new Date(startDate.setDate(startDate.getDate() + (weeks * 7)));
+            }
 
             return {
                 clientId: loan.clientId,
@@ -160,21 +165,20 @@ function FieldCollectionSheet({ branch }) {
                 weeklyRate: weeklyRate,
                 latestPaymentDate: latestPaymentDate,
                 repaymentStartDate: loan.repaymentStartDate ? new Date(loan.repaymentStartDate) : null,
+                repaymentEndDate: repaymentEndDate, // Added field
             };
         });
     };
 
-  const finalReportData = buildLoanReport(loans, payments, savings).map(client => ({
-    ...client,
-    isFullyPaid:
-        Number(client.totalRepaymentSoFar) >= Number(client.loanOutstanding),
-}));
-
+    const finalReportData = buildLoanReport(loans, payments, savings).map(client => ({
+        ...client,
+        isFullyPaid: Number(client.totalRepaymentSoFar) >= Number(client.loanOutstanding),
+    }));
 
     const filteredReportData = finalReportData
         .filter(c => !selectedStaff || c.staffName === selectedStaff)
         .filter(c => !selectedGroup || `${c.groupName} (${c.groupId})` === selectedGroup)
-        .filter(c => !selectedProduct || c.loanProduct === selectedProduct); // New Filter
+        .filter(c => !selectedProduct || c.loanProduct === selectedProduct);
 
     const uniqueStaff = [...new Set(loans.map(l => l.staffName).filter(Boolean))];
     const uniqueGroups = [...new Set(loans.map(l => `${l.groupName} (${l.groupId})`).filter(Boolean))];
@@ -250,6 +254,7 @@ function FieldCollectionSheet({ branch }) {
                                 <th className="border"> Savings</th>
                                 <th className="border">Loan Product</th>
                                 <th className="border">Last Pay Date</th>
+                                <th className="border">End Date</th> {/* Added Header */}
                                 <th className="border">Weeks Paid</th>
                                 <th className="border">Weekly Rate</th>
                                 <th className="border">P + I</th>
@@ -265,7 +270,6 @@ function FieldCollectionSheet({ branch }) {
                                 const rowDateStr = clientDates[client.clientId] || new Date().toISOString().slice(0, 10);
                                 const metrics = calculateMetrics(client, rowDateStr);
 
-                                // 🌟 EXACT REPLICATED CALCULATION LOGIC 🌟
                                 const actualAmount = client.weeklyRate || 0;
                                 const totalRepaymentSoFar = client.totalRepaymentSoFar || 0;
 
@@ -289,7 +293,10 @@ function FieldCollectionSheet({ branch }) {
                                         <td className="border p-1">
                                             {client.latestPaymentDate ? client.latestPaymentDate.toLocaleDateString() : 'New'}
                                         </td>
-                                        {/* Displays rounded value with "week/s" label exactly like ClientReport */}
+                                        {/* Added Cell for End Date */}
+                                        <td className="border p-1">
+                                            {client.repaymentEndDate ? client.repaymentEndDate.toLocaleDateString() : 'N/A'}
+                                        </td>
                                         <td className="border p-1 font-semibold text-gray-700">
                                             {Math.round(weeksPaid)} week/s
                                         </td>
