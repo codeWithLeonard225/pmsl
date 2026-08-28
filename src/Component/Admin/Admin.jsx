@@ -35,6 +35,9 @@ import FullPaid from "../Load Details/FullPaid";
 import PaymentDetails from "../Load Details/PaymentDetails";
 import ProcessingFee from "../Fees Collection/ProcessingFee";
 import GroupReportTransactionGPT from "../Reports/Portfolio Transaction/GroupReportTransactionGPT";
+import ClientPortfolio from "../Reports/Portfolio Transaction/ClientPortfolio";
+import StaffPortfolio from "../Reports/Portfolio Transaction/StaffPortfolio";
+import GeneralPortfolio from "../Reports/Portfolio Transaction/GeneralPortfolio";
 import ClientReport from "../Reports/ClientsReport/ClientReport";
 import GroupManager from "../Principal/GroupManager";
 import ActualExpenses from "../TrialBalance/ActualExpenses";
@@ -118,8 +121,11 @@ const NAV_ITEMS = [
         icon: <MdDescription />,
         children: [
           { key: "generalportfolio", label: "General Portfolio", icon: <MdBarChart /> },
-          { key: "staffportfolio", label: "Staff Portfolio", icon: <MdFormatListBulleted /> },
+          { key: "staffportfolio", label: "Staff Repayment Portfolio", icon: <MdFormatListBulleted /> },
           { key: "groupReportTransactionGPT", label: "GroupReport", icon: <MdFormatListBulleted /> },
+          { key: "ClientPortfolio", label: "Client Portfolio", icon: <MdPeople /> },
+          { key: "StaffPortfolio", label: "Staff Portfolio", icon: <MdPeople /> },
+          { key: "GeneralPortfolio", label: "General Portfolio", icon: <MdPeople /> },
         ],
       },
       {
@@ -310,6 +316,9 @@ function AdminPanel() {
       case "PaymentTrackingReport": return <PaymentTrackingReport {...props} />;
       case "StaffPerformanceReport": return <StaffPerformanceReport {...props} />;
       case "LegacyStaffRepair": return <LegacyStaffRepair {...props} />;
+      case "ClientPortfolio": return <ClientPortfolio {...props} />;
+      case "StaffPortfolio": return <StaffPortfolio {...props} />;
+      case "GeneralPortfolio": return <GeneralPortfolio {...props} />;
       default: return <Dashboard branch={branch} />;
     }
   };
